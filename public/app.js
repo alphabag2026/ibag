@@ -9774,7 +9774,7 @@ document.addEventListener('click', (e) => {
     const action = actionEl.dataset.action;
     // Only handle actions for dynamically created elements
     // (static elements already have their own listeners from bindEvents)
-    if (['add-contract-token', 'ai-open-external', 'app-check-update', 'app-download-update', 'vault-reset', 'vault-lock', 'vault-settings', 'vault-change-view', 'vault-change-panic', 'vault-autolock-set'].includes(action)) {
+    if (['add-contract-token', 'ai-open-external', 'ai-attach', 'ai-remove-attach', 'ai-send', 'ai-clear-chat', 'app-check-update', 'app-download-update', 'vault-reset', 'vault-lock', 'vault-settings', 'vault-change-view', 'vault-change-panic', 'vault-autolock-set'].includes(action)) {
       e.stopPropagation();
       handleAction(action, actionEl);
     }

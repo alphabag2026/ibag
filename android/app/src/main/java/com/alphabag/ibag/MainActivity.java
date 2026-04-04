@@ -11,6 +11,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebSettings;
@@ -39,9 +40,11 @@ public class MainActivity extends BridgeActivity {
 
     private static final String TAG = "iBagWallet";
     private static final int PERMISSION_REQUEST_CODE = 1001;
+    private static final int FILE_CHOOSER_REQUEST_CODE = 1002;
     private String web3ProviderScript = null;
     private WebView mainWebView = null;
     private Handler mainHandler = new Handler(Looper.getMainLooper());
+    private ValueCallback<Uri[]> fileUploadCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,12 +75,33 @@ public class MainActivity extends BridgeActivity {
                 // Add JavaScript Interface for native bridge communication
                 webView.addJavascriptInterface(new Web3NativeBridge(), "iBagNativeBridge");
 
-                // WebChromeClient for media permissions (microphone, camera in WebView)
+                // WebChromeClient for media permissions and file chooser
                 webView.setWebChromeClient(new WebChromeClient() {
                     @Override
                     public void onPermissionRequest(final PermissionRequest request) {
                         Log.d(TAG, "WebView permission request: " + java.util.Arrays.toString(request.getResources()));
                         mainHandler.post(() -> request.grant(request.getResources()));
+                    }
+
+                    @Override
+                    public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+                        Log.d(TAG, "onShowFileChooser called");
+                        // Cancel any existing callback
+                        if (fileUploadCallback != null) {
+                            fileUploadCallback.onReceiveValue(null);
+                        }
+                        fileUploadCallback = filePathCallback;
+
+                        try {
+                            Intent intent = fileChooserParams.createIntent();
+                            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                            startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE);
+                        } catch (Exception e) {
+                            Log.e(TAG, "File chooser error", e);
+                            fileUploadCallback = null;
+                            return false;
+                        }
+                        return true;
                     }
                 });
             }
@@ -580,6 +604,31 @@ public class MainActivity extends BridgeActivity {
             ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
         } else {
             Log.d(TAG, "All permissions already granted");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
+            if (fileUploadCallback != null) {
+                Uri[] results = null;
+                if (resultCode == RESULT_OK && data != null) {
+                    // Check for multiple files
+                    if (data.getClipData() != null) {
+                        int count = data.getClipData().getItemCount();
+                        results = new Uri[count];
+                        for (int i = 0; i < count; i++) {
+                            results[i] = data.getClipData().getItemAt(i).getUri();
+                        }
+                    } else if (data.getData() != null) {
+                        results = new Uri[]{data.getData()};
+                    }
+                }
+                fileUploadCallback.onReceiveValue(results);
+                fileUploadCallback = null;
+            }
+        } else {
+            super.onActivityResult(requestCode, resultCode, data);
         }
     }
 
