@@ -1,0 +1,67 @@
+{
+  "appId": "com.alphabag.ibag",
+  "appName": "iBag",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor",
+    "cleartext": true,
+    "allowNavigation": [
+      "*.1page.to",
+      "*.tokenpocket.pro",
+      "*.google.com",
+      "cdn.jsdelivr.net",
+      "unpkg.com",
+      "*.bscscan.com",
+      "*.etherscan.io",
+      "*.polygonscan.com",
+      "*.arbiscan.io",
+      "*.snowtrace.io",
+      "*.basescan.org",
+      "*.solscan.io",
+      "*.tronscan.org",
+      "*.mintscan.io",
+      "*.nearblocks.io",
+      "*.xrpscan.com",
+      "*.blockchain.com",
+      "*.blockchair.com",
+      "*.stellarchain.io",
+      "*.filfox.info",
+      "*.hashscan.io",
+      "*.subscan.io",
+      "xplayvault-foftd3kr.manus.space"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "allowsLinkPreview": true,
+    "scrollEnabled": true,
+    "limitsNavigationsToAppBoundDomains": false,
+    "preferredContentMode": "mobile",
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "backgroundColor": "#0a0e1a",
+      "showSpinner": false,
+      "androidSpinnerStyle": "small",
+      "spinnerColor": "#00e5ff",
+      "launchAutoHide": true
+    },
+    "Keyboard": {
+      "resize": "body",
+      "style": "dark",
+      "resizeOnFullScreen": true
+    },
+    "StatusBar": {
+      "style": "light",
+      "backgroundColor": "#0a0e1a"
+    }
+  }
+}

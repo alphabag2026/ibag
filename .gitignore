@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+*.apk
+*.ipa
+*.exe
+*.AppImage
+*.log
+.DS_Store
+Thumbs.db
+*.bak
+android/app/build/
+android/.gradle/
+ios/App/Pods/
+electron/dist/
+electron/node_modules/
