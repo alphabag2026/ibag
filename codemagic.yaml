@@ -72,7 +72,7 @@ workflows:
           npm install
       - name: Sync Capacitor
         script: |
-          npx cap copy android
+          npx cap sync android
       - name: Set Android version
         script: |
           cd android/app
