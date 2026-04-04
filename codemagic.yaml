@@ -56,3 +56,33 @@ workflows:
         auth: integration
         submit_to_testflight: true
         submit_to_app_store: false
+
+  android-build:
+    name: iBag Android Build
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      vars:
+        BUNDLE_ID: "com.alphabag.ibag"
+      java: 17
+      node: 18
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm install
+      - name: Sync Capacitor
+        script: |
+          npx cap copy android
+      - name: Set Android version
+        script: |
+          cd android/app
+          NEW_VERSION_CODE=$(($(date +%s) / 60))
+          sed -i "s/versionCode [0-9]*/versionCode $NEW_VERSION_CODE/" build.gradle
+      - name: Build Android APK
+        script: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/mapping.txt
