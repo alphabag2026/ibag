@@ -77,7 +77,10 @@ workflows:
         script: |
           cd android/app
           NEW_VERSION_CODE=$(($(date +%s) / 60))
-          sed -i "s/versionCode [0-9]*/versionCode $NEW_VERSION_CODE/" build.gradle
+          sed -i '' "s/versionCode [0-9]*/versionCode $NEW_VERSION_CODE/" build.gradle
+          sed -i '' "s/versionName \"[^\"]*\"/versionName \"5.3.4\"/" build.gradle
+          echo "Updated versionCode to $NEW_VERSION_CODE"
+          grep -E "versionCode|versionName" build.gradle
       - name: Build Android APK
         script: |
           cd android
