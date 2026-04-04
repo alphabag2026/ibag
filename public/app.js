@@ -258,6 +258,7 @@ let aiGeminiApiKeys = ['server-proxy']; // server proxy mode
 let aiCurrentKeyIndex = 0;
 let aiShowSettings = false;
 let aiChatHistory = []; // conversation history for context
+let aiPendingAttachments = []; // pending attachments for next message { type: 'image'|'video'|'file', data: string, name: string, preview: string }
 const AI_PROXY_URL = 'https://xplayvault-foftd3kr.manus.space/api/ibag-chat';
 const TRANSLATE_PROXY_URL = 'https://xplayvault-foftd3kr.manus.space/api/ibag-translate';
 
@@ -3873,11 +3874,19 @@ function saveAiSettings() {
 }
 
 async function sendGeminiMessage(userText) {
-  if (!userText.trim()) return;
+  if (!userText.trim() && aiPendingAttachments.length === 0) return;
   
-  // Add user message
-  aiMessages.push({ role: 'user', text: userText, timestamp: Date.now() });
-  aiChatHistory.push({ role: 'user', parts: [{ text: userText }] });
+  // Capture current attachments
+  const currentAttachments = [...aiPendingAttachments];
+  aiPendingAttachments = [];
+  
+  // Add user message with attachments
+  const userMsg = { role: 'user', text: userText || (currentAttachments.length > 0 ? '이 파일을 분석해주세요' : ''), timestamp: Date.now() };
+  if (currentAttachments.length > 0) {
+    userMsg.attachments = currentAttachments;
+  }
+  aiMessages.push(userMsg);
+  aiChatHistory.push({ role: 'user', parts: [{ text: userMsg.text }], attachments: currentAttachments });
   aiInputText = '';
   aiIsLoading = true;
   render();
@@ -3885,13 +3894,19 @@ async function sendGeminiMessage(userText) {
   
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout for server proxy
+    const timeout = setTimeout(() => controller.abort(), 90000); // 90s timeout for image uploads
     
     // Build conversation history for server proxy
-    const chatMsgs = aiChatHistory.map(h => ({
-      role: h.role === 'model' ? 'model' : h.role,
-      text: h.parts?.[0]?.text || ''
-    }));
+    const chatMsgs = aiChatHistory.map(h => {
+      const msg = {
+        role: h.role === 'model' ? 'model' : h.role,
+        text: h.parts?.[0]?.text || ''
+      };
+      if (h.attachments && h.attachments.length > 0) {
+        msg.attachments = h.attachments.map(a => ({ type: a.type, data: a.data, name: a.name }));
+      }
+      return msg;
+    });
     
     const resp = await fetch(AI_PROXY_URL, {
       method: 'POST',
@@ -4195,17 +4210,28 @@ function renderAIChat() {
         </button>
       </div>
     </div>
-  ` : aiMessages.map(msg => `
+  ` : aiMessages.map(msg => {
+    let attachHtml = '';
+    if (msg.attachments && msg.attachments.length > 0) {
+      attachHtml = '<div class="ai-msg-attachments">' + msg.attachments.map(att => {
+        if (att.type === 'image') return `<img src="${att.preview || att.data}" class="ai-msg-img" onclick="window.open('${att.data}','_blank')" />`;
+        if (att.type === 'video') return `<div class="ai-msg-file-badge"><i class="ri-video-line"></i> ${escapeHtml(att.name)}</div>`;
+        return `<div class="ai-msg-file-badge"><i class="ri-file-line"></i> ${escapeHtml(att.name)}</div>`;
+      }).join('') + '</div>';
+    }
+    return `
     <div class="ai-message ${msg.role === 'user' ? 'ai-msg-user' : 'ai-msg-model'} ${msg.isError ? 'ai-msg-error' : ''}">
       <div class="ai-msg-avatar">
         ${msg.role === 'user' ? '<i class="ri-user-3-fill"></i>' : '<i class="ri-sparkling-2-fill"></i>'}
       </div>
       <div class="ai-msg-bubble">
+        ${attachHtml}
         <div class="ai-msg-text">${msg.role === 'user' ? escapeHtml(msg.text) : formatAiMessage(msg.text)}</div>
         <div class="ai-msg-time">${new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
   
   const loadingHtml = aiIsLoading ? `
     <div class="ai-message ai-msg-model">
@@ -4242,12 +4268,29 @@ function renderAIChat() {
         ${loadingHtml}
       </div>
       <div class="ai-chat-input-area">
+        ${aiPendingAttachments.length > 0 ? `
+        <div class="ai-attachments-preview">
+          ${aiPendingAttachments.map((att, i) => `
+            <div class="ai-attach-item">
+              ${att.type === 'image' ? `<img src="${att.preview || att.data}" class="ai-attach-thumb" />` : 
+                att.type === 'video' ? `<div class="ai-attach-thumb ai-attach-video"><i class="ri-video-line"></i></div>` :
+                `<div class="ai-attach-thumb ai-attach-file"><i class="ri-file-line"></i></div>`}
+              <span class="ai-attach-name">${escapeHtml(att.name || 'file')}</span>
+              <button class="ai-attach-remove" data-action="ai-remove-attach" data-idx="${i}"><i class="ri-close-line"></i></button>
+            </div>
+          `).join('')}
+        </div>
+        ` : ''}
         <div class="ai-input-wrapper">
+          <button class="ai-attach-btn" data-action="ai-attach" title="Attach">
+            <i class="ri-add-line"></i>
+          </button>
           <textarea id="ai-input" class="ai-text-input" placeholder="${escapeHtml(t('ai_placeholder') || 'Ask iBag AI...')}" rows="1">${escapeHtml(aiInputText)}</textarea>
           <button class="ai-send-btn ${aiIsLoading ? 'disabled' : ''}" data-action="ai-send" ${aiIsLoading ? 'disabled' : ''}>
             <i class="ri-send-plane-2-fill"></i>
           </button>
         </div>
+        <input type="file" id="ai-file-input" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.csv,.xlsx" multiple style="display:none" />
       </div>
     </div>
   `;
@@ -7014,8 +7057,38 @@ function bindEvents() {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         const text = aiInput.value.trim();
-        if (text && !aiIsLoading) sendGeminiMessage(text);
+        if ((text || aiPendingAttachments.length > 0) && !aiIsLoading) sendGeminiMessage(text);
       }
+    });
+  }
+  
+  // AI file input handler
+  const aiFileInput = document.getElementById('ai-file-input');
+  if (aiFileInput) {
+    aiFileInput.addEventListener('change', (e) => {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+      
+      Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const dataUrl = ev.target.result;
+          if (file.type.startsWith('image/')) {
+            aiPendingAttachments.push({ type: 'image', data: dataUrl, name: file.name, preview: dataUrl });
+          } else if (file.type.startsWith('video/')) {
+            aiPendingAttachments.push({ type: 'video', data: dataUrl, name: file.name, preview: '' });
+          } else {
+            aiPendingAttachments.push({ type: 'file', data: dataUrl, name: file.name, preview: '' });
+          }
+          render();
+        };
+        if (file.size > 10 * 1024 * 1024) {
+          alert(state.language === 'ko' ? '파일 크기는 10MB 이하만 가능합니다.' : 'File size must be under 10MB.');
+          return;
+        }
+        reader.readAsDataURL(file);
+      });
+      e.target.value = ''; // reset
     });
   }
 
@@ -7426,7 +7499,7 @@ function handleAction(action, el) {
     case 'ai-send': {
       const aiInput = document.getElementById('ai-input');
       const text = aiInput ? aiInput.value.trim() : aiInputText.trim();
-      if (text) sendGeminiMessage(text);
+      if (text || aiPendingAttachments.length > 0) sendGeminiMessage(text);
       break;
     }
     case 'ai-suggest': {
@@ -7480,9 +7553,23 @@ function handleAction(action, el) {
       }
       break;
     }
+    case 'ai-attach': {
+      const fileInput = document.getElementById('ai-file-input');
+      if (fileInput) fileInput.click();
+      break;
+    }
+    case 'ai-remove-attach': {
+      const removeIdx = parseInt(el.dataset.idx);
+      if (!isNaN(removeIdx) && removeIdx >= 0) {
+        aiPendingAttachments.splice(removeIdx, 1);
+        render();
+      }
+      break;
+    }
     case 'ai-clear-chat':
       aiMessages = [];
       aiChatHistory = [];
+      aiPendingAttachments = [];
       saveAiSettings();
       render();
       break;
