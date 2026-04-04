@@ -86,6 +86,19 @@ workflows:
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease
+      - name: Sign APK
+        script: |
+          APK_PATH=$(find android/app/build/outputs -name "*.apk" | head -1)
+          if [ -n "$APK_PATH" ]; then
+            jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+              -keystore android/ibag-release.keystore \
+              -storepass ibag2024 \
+              "$APK_PATH" ibag
+            echo "APK signed successfully: $APK_PATH"
+          else
+            echo "No APK found to sign"
+            exit 1
+          fi
     artifacts:
       - android/app/build/outputs/**/*.apk
       - android/app/build/outputs/**/mapping.txt
