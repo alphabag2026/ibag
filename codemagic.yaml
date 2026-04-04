@@ -42,7 +42,7 @@ workflows:
         script: |
           cd ios/App
           agvtool new-marketing-version 5.3.4
-          agvtool new-version -all 1
+          agvtool new-version -all $(($(date +%s) / 60))
       - name: Build iOS app
         script: |
           xcode-project build-ipa \
