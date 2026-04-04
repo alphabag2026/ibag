@@ -2276,15 +2276,27 @@ function ideaTouchMove(e) {
 }
 
 // ─── Audio Recording ───
+function getAudioMimeType() {
+  if (typeof MediaRecorder !== 'undefined') {
+    if (MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return 'audio/webm;codecs=opus';
+    if (MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm';
+    if (MediaRecorder.isTypeSupported('audio/ogg')) return 'audio/ogg';
+  }
+  return ''; // let browser choose default
+}
 async function ideaStartAudioRecording() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     ideaRecordedChunks = [];
-    ideaMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    const audioMime = getAudioMimeType();
+    const recorderOptions = audioMime ? { mimeType: audioMime } : {};
+    ideaMediaRecorder = new MediaRecorder(stream, recorderOptions);
+    const actualMime = ideaMediaRecorder.mimeType || audioMime || 'audio/mp4';
     ideaMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) ideaRecordedChunks.push(e.data); };
     ideaMediaRecorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(ideaRecordedChunks, { type: 'audio/webm' });
+      const blob = new Blob(ideaRecordedChunks, { type: actualMime });
       const reader = new FileReader();
       reader.onloadend = async () => {
         const mediaId = 'audio_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
@@ -2318,17 +2330,29 @@ function ideaStopAudioRecording() {
 }
 
 // ─── Video Recording ───
+function getVideoMimeType() {
+  if (typeof MediaRecorder !== 'undefined') {
+    if (MediaRecorder.isTypeSupported('video/mp4')) return 'video/mp4';
+    if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) return 'video/webm;codecs=vp9,opus';
+    if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) return 'video/webm;codecs=vp8,opus';
+    if (MediaRecorder.isTypeSupported('video/webm')) return 'video/webm';
+  }
+  return ''; // let browser choose default
+}
 async function ideaStartVideoRecording() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: true });
     ideaVideoStream = stream;
     ideaRecordedChunks = [];
-    ideaMediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    const videoMime = getVideoMimeType();
+    const recorderOptions = videoMime ? { mimeType: videoMime } : {};
+    ideaMediaRecorder = new MediaRecorder(stream, recorderOptions);
+    const actualMime = ideaMediaRecorder.mimeType || videoMime || 'video/mp4';
     ideaMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) ideaRecordedChunks.push(e.data); };
     ideaMediaRecorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
       ideaVideoStream = null;
-      const blob = new Blob(ideaRecordedChunks, { type: 'video/webm' });
+      const blob = new Blob(ideaRecordedChunks, { type: actualMime });
       const reader = new FileReader();
       reader.onloadend = async () => {
         const mediaId = 'video_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
@@ -2416,9 +2440,11 @@ async function ideaPlayAudio(mediaId) {
   const media = await getIdeaMedia(mediaId).catch(() => null);
   if (!media) return;
   ideaCurrentAudio = new Audio(media.data);
+  ideaCurrentAudio.setAttribute('playsinline', '');
   ideaPlayingAudioId = mediaId;
   ideaCurrentAudio.onended = () => { ideaPlayingAudioId = null; ideaCurrentAudio = null; loadIdeaMediaList(); };
-  ideaCurrentAudio.play();
+  ideaCurrentAudio.onerror = (e) => { console.error('Audio play error:', e); ideaPlayingAudioId = null; ideaCurrentAudio = null; loadIdeaMediaList(); alert('이 음성 파일을 재생할 수 없습니다. 새로 녹음해주세요.'); };
+  ideaCurrentAudio.play().catch(err => { console.error('Audio play failed:', err); ideaPlayingAudioId = null; ideaCurrentAudio = null; loadIdeaMediaList(); alert('이 음성 파일을 재생할 수 없습니다. 새로 녹음해주세요.'); });
   loadIdeaMediaList();
 }
 
@@ -2428,7 +2454,7 @@ async function ideaPlayVideo(mediaId) {
   // Open in fullscreen overlay
   const overlay = document.createElement('div');
   overlay.className = 'idea-video-overlay';
-  overlay.innerHTML = `<div class="idea-video-overlay-inner"><video controls autoplay src="${media.data}" style="max-width:100%;max-height:80vh;border-radius:12px"></video><button class="idea-video-close" onclick="this.parentElement.parentElement.remove()"><i class="ri-close-line"></i></button></div>`;
+  overlay.innerHTML = `<div class="idea-video-overlay-inner"><video controls autoplay playsinline webkit-playsinline src="${media.data}" style="max-width:100%;max-height:80vh;border-radius:12px" onerror="alert('이 영상 파일을 재생할 수 없습니다. 새로 녹화해주세요.');this.parentElement.parentElement.remove()"></video><button class="idea-video-close" onclick="this.parentElement.parentElement.remove()"><i class="ri-close-line"></i></button></div>`;
   document.body.appendChild(overlay);
 }
 

@@ -216,7 +216,7 @@ body {
 .card-actions button { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; font-size: 16px; transition: all 0.15s; }
 .card-actions button:hover { color: var(--text-primary); background: var(--bg-input); }
 .card-actions button.danger:hover { color: var(--danger); background: rgba(239,68,68,0.1); }
-.card-image-thumb { height: 80px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; overflow: hidden; margin: -10px -12px 8px; }
+.card-image-thumb { height: 120px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; overflow: hidden; margin: -10px -12px 8px; }
 .card-image-thumb img { width: 100%; height: 100%; object-fit: cover; }
 
 /* ─── Share checkbox ─── */
@@ -559,7 +559,7 @@ select.form-input { appearance: none; background-image: url("data:image/svg+xml,
 .token-icon.has-logo img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 50%;
 }
 .token-section-label {
