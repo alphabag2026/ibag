@@ -46,11 +46,11 @@ const INFOWEB4_SITES = [
 // Default middle tabs
 const DEFAULT_MIDDLE_TABS = [
   { id: 'my', label: 'MY', icon: 'ri-user-star-line' },
-  { id: 'ai', label: 'AI', icon: 'ri-robot-2-line' },
-  { id: 'project', label: '프로젝트', icon: 'ri-rocket-line' },
-  { id: 'predict', label: '예측', icon: 'ri-line-chart-line' },
-  { id: 'defi', label: '디파이', icon: 'ri-exchange-funds-line' },
-  { id: 'cefi', label: 'CEFi', icon: 'ri-bank-line' },
+  { id: 'coin', label: 'Coin', icon: 'ri-coin-line' },
+  { id: 'onepage', label: '1page.to', icon: 'ri-pages-line' },
+  { id: 'news', label: 'News', icon: 'ri-newspaper-line' },
+  { id: 'meetup', label: '밋업', icon: 'ri-group-line' },
+  { id: 'kol', label: 'KOL', icon: 'ri-user-voice-line' },
 ];
 
 // CoinGecko token IDs - Mainnet tokens with logos
@@ -282,7 +282,7 @@ let tokenWs = null; // WebSocket for real-time price
 let tokenWsPrice = null; // real-time price from WebSocket
 let tokenWsPriceChange = null; // real-time price change
 let tokenFavorites = []; // list of favorited token IDs
-
+let projectFavorites = []; // list of favorited project IDs for MY tab
 // Load/save token favorites from localStorage
 function saveTokenFavorites() {
   try { localStorage.setItem('ibag_token_favorites', JSON.stringify(tokenFavorites)); } catch(e) {}
@@ -292,6 +292,15 @@ function loadTokenFavorites() {
     const saved = localStorage.getItem('ibag_token_favorites');
     if (saved) tokenFavorites = JSON.parse(saved);
   } catch(e) { tokenFavorites = []; }
+}
+function saveProjectFavorites() {
+  try { localStorage.setItem('ibag_project_favorites', JSON.stringify(projectFavorites)); } catch(e) {}
+}
+function loadProjectFavorites() {
+  try {
+    const saved = localStorage.getItem('ibag_project_favorites');
+    if (saved) projectFavorites = JSON.parse(saved);
+  } catch(e) { projectFavorites = []; }
 }
 
 // Card state
@@ -619,6 +628,7 @@ async function loadData() {
   loadClipboardItems();
   loadIdeaNotes();
   loadTokenFavorites();
+  loadProjectFavorites();
 }
 
 function detectSystemLanguage() {
@@ -1485,8 +1495,17 @@ function renderHome() {
   let middleContent = '';
   if (activeMiddleTab === 'my') {
     middleContent = renderMyTab();
+  } else if (activeMiddleTab === 'coin') {
+    middleContent = renderCoinTab();
+  } else if (activeMiddleTab === 'onepage') {
+    middleContent = renderOnePageTab();
+  } else if (activeMiddleTab === 'news') {
+    middleContent = renderNewsTab();
+  } else if (activeMiddleTab === 'meetup') {
+    middleContent = renderMeetupTab();
+  } else if (activeMiddleTab === 'kol') {
+    middleContent = renderKolTab();
   } else {
-    // Other tabs show infoweb4 webview content
     const tabInfo = middleTabs.find(t => t.id === activeMiddleTab);
     middleContent = `
       <div class="tab-content-placeholder">
@@ -1605,14 +1624,249 @@ function renderMyTab() {
     <div class="token-list">${favTokenItems}</div>
   ` : '';
 
+  // MY tab: show only favorited projects
+  const myFavProjects = allProjects.filter(p => projectFavorites.includes(p.id));
+  const myFavProjectsHtml = myFavProjects.length > 0 ? myFavProjects.map(site => {
+    const faviconUrl = site.faviconUrl || getFaviconUrl(site.url);
+    const logoHtml = faviconUrl
+      ? `<div class="infoweb4-logo has-img" style="background:${site.color || '#00d4ff'}20"><img src="${escapeHtml(faviconUrl)}" alt="${escapeHtml(site.name)}" onerror="this.parentElement.classList.remove('has-img');this.parentElement.innerHTML='${site.logo || '🌐'}'"></div>`
+      : `<div class="infoweb4-logo" style="background:${site.color || '#00d4ff'}20">${site.logo || '🌐'}</div>`;
+    const categoryBadge = site.category ? `<span class="project-category-badge" style="background:${site.color || '#00d4ff'}20;color:${site.color || '#00d4ff'}">${escapeHtml(site.category)}</span>` : '';
+    return `
+    <div class="infoweb4-card" data-action="open-infoweb4" data-url="${escapeHtml(site.url)}">
+      ${logoHtml}
+      <div class="infoweb4-info">
+        <div class="infoweb4-name">${escapeHtml(site.name)} ${categoryBadge}</div>
+        <div class="infoweb4-url">${escapeHtml(site.url.replace('https://',''))}</div>
+      </div>
+      <div class="infoweb4-actions">
+        <button class="infoweb4-share" data-action="toggle-project-fav" data-project-id="${site.id}"><i class="ri-star-fill" style="color:#f59e0b"></i></button>
+        <i class="ri-arrow-right-s-line" style="color:var(--text-muted)"></i>
+      </div>
+    </div>
+  `;
+  }).join('') : '';
+
+  const myFavProjectSection = myFavProjects.length > 0 ? `
+    <div class="section-label" style="margin-top:16px"><i class="ri-star-fill" style="font-size:14px;color:#f59e0b"></i> 1page.to ${escapeHtml(t('tp_favorites') || 'Favorites')} <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${myFavProjects.length})</span></div>
+    <div class="infoweb4-list">${myFavProjectsHtml}</div>
+  ` : '';
+
   return `
     ${favSection}
     <div class="section-label">${escapeHtml(t('my_tokens'))} <button class="section-edit-btn" data-action="add-token-modal"><i class="ri-add-line"></i></button></div>
     <div class="token-list">${tokenItems}</div>
     ${addTokenBtn}
-    <div class="section-label" style="margin-top:16px"><i class="ri-rocket-line" style="font-size:14px;color:var(--primary)"></i> 1page.to ${escapeHtml(t('my_projects'))} <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${allProjects.length})</span> <button class="section-edit-btn" data-action="add-project-modal"><i class="ri-add-line"></i></button></div>
-    <div class="infoweb4-list">${infoweb4Items}</div>
+    ${myFavProjectSection}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Coin Tab - All coins with detailed info
+// ═══════════════════════════════════════════════════════════
+function renderCoinTab() {
+  const allTokens = [...TOKEN_LIST, ...customTokens];
+  
+  // Favorite tokens section
+  const favTokenItems = tokenFavorites.length > 0 ? allTokens.filter(tk => tokenFavorites.includes(tk.id)).map(tk => {
+    const price = tokenPrices[tk.id];
+    const usdPrice = price ? price.usd : 0;
+    const change24h = price ? price.usd_24h_change : 0;
+    const changeColor = change24h >= 0 ? '#10b981' : '#ef4444';
+    const changeSign = change24h >= 0 ? '+' : '';
+    const logoHtml = tk.logo
+      ? `<div class="token-icon has-logo" style="background:${tk.color}20"><img src="${escapeHtml(tk.logo)}" alt="${escapeHtml(tk.symbol)}" onerror="this.parentElement.classList.remove('has-logo');this.parentElement.style.color='${tk.color}';this.parentElement.textContent='${tk.icon}'"></div>`
+      : `<div class="token-icon" style="background:${tk.color}20;color:${tk.color}">${tk.icon}</div>`;
+    return `
+      <div class="token-card" data-action="open-token-detail" data-token-id="${tk.id}" style="cursor:pointer">
+        ${logoHtml}
+        <div class="token-info">
+          <div class="token-name">${escapeHtml(tk.name)} <span style="font-size:10px;color:var(--text-muted);font-weight:400">${tk.symbol}</span></div>
+          <div class="token-price">$${usdPrice ? usdPrice.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '0.00'}</div>
+        </div>
+        <div class="token-change" style="color:${changeColor}">
+          ${changeSign}${change24h ? change24h.toFixed(2) : '0.00'}%
+        </div>
+        <button class="token-remove-btn" data-action="remove-favorite-token" data-token-id="${tk.id}" title="Remove from favorites"><i class="ri-star-fill" style="color:#f59e0b"></i></button>
+      </div>
+    `;
+  }).join('') : '';
+
+  const favSection = tokenFavorites.length > 0 ? `
+    <div class="section-label"><i class="ri-star-fill" style="color:#f59e0b;font-size:14px"></i> ${escapeHtml(t('tp_favorites') || 'Favorites')} <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${tokenFavorites.length})</span></div>
+    <div class="token-list">${favTokenItems}</div>
+  ` : '';
+
+  // My tokens (user-added)
+  const myTokens = allTokens.filter(tk => tk.fixed || state.savedTokens.includes(tk.id));
+  const myTokenItems = myTokens.map(tk => {
+    const price = tokenPrices[tk.id];
+    const usdPrice = price ? price.usd : 0;
+    const change24h = price ? price.usd_24h_change : 0;
+    const changeColor = change24h >= 0 ? '#10b981' : '#ef4444';
+    const changeSign = change24h >= 0 ? '+' : '';
+    const logoHtml = tk.logo
+      ? `<div class="token-icon has-logo" style="background:${tk.color}20"><img src="${escapeHtml(tk.logo)}" alt="${escapeHtml(tk.symbol)}" onerror="this.parentElement.classList.remove('has-logo');this.parentElement.style.color='${tk.color}';this.parentElement.textContent='${tk.icon}'"></div>`
+      : `<div class="token-icon" style="background:${tk.color}20;color:${tk.color}">${tk.icon}</div>`;
+    return `
+      <div class="token-card" data-action="open-token-detail" data-token-id="${tk.id}" style="cursor:pointer">
+        ${logoHtml}
+        <div class="token-info">
+          <div class="token-name">${escapeHtml(tk.name)} <span style="font-size:10px;color:var(--text-muted);font-weight:400">${tk.symbol}</span></div>
+          <div class="token-price">$${usdPrice ? usdPrice.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '0.00'}</div>
+        </div>
+        <div class="token-change" style="color:${changeColor}">
+          ${changeSign}${change24h ? change24h.toFixed(2) : '0.00'}%
+        </div>
+        ${!tk.fixed ? `<button class="token-remove-btn" data-action="remove-token" data-token-id="${tk.id}" title="${escapeHtml(t('token_remove'))}"><i class="ri-close-circle-line"></i></button>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  // All available tokens (not yet added)
+  const remainingTokens = allTokens.filter(tk => !tk.fixed && !state.savedTokens.includes(tk.id));
+  const remainingItems = remainingTokens.map(tk => {
+    const price = tokenPrices[tk.id];
+    const usdPrice = price ? price.usd : 0;
+    const change24h = price ? price.usd_24h_change : 0;
+    const changeColor = change24h >= 0 ? '#10b981' : '#ef4444';
+    const changeSign = change24h >= 0 ? '+' : '';
+    const logoHtml = tk.logo
+      ? `<div class="token-icon has-logo" style="background:${tk.color}20"><img src="${escapeHtml(tk.logo)}" alt="${escapeHtml(tk.symbol)}" onerror="this.parentElement.classList.remove('has-logo');this.parentElement.style.color='${tk.color}';this.parentElement.textContent='${tk.icon}'"></div>`
+      : `<div class="token-icon" style="background:${tk.color}20;color:${tk.color}">${tk.icon}</div>`;
+    return `
+      <div class="token-card" data-action="open-token-detail" data-token-id="${tk.id}" style="cursor:pointer">
+        ${logoHtml}
+        <div class="token-info">
+          <div class="token-name">${escapeHtml(tk.name)} <span style="font-size:10px;color:var(--text-muted);font-weight:400">${tk.symbol}</span></div>
+          <div class="token-price">$${usdPrice ? usdPrice.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '0.00'}</div>
+        </div>
+        <div class="token-change" style="color:${changeColor}">
+          ${changeSign}${change24h ? change24h.toFixed(2) : '0.00'}%
+        </div>
+        <button class="token-remove-btn" data-action="quick-add-token" data-token-id="${tk.id}" title="Add to MY"><i class="ri-add-circle-line" style="color:var(--primary)"></i></button>
+      </div>
+    `;
+  }).join('');
+
+  // Add token button
+  const addTokenBtn = `
+    <div class="token-add-card" data-action="add-token-modal">
+      <i class="ri-add-circle-line"></i>
+      <span>${escapeHtml(t('token_add'))}</span>
+    </div>
+  `;
+
+  return `
+    ${favSection}
+    <div class="section-label"><i class="ri-coin-line" style="font-size:14px;color:var(--primary)"></i> ${escapeHtml(t('my_tokens'))} <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${myTokens.length})</span> <button class="section-edit-btn" data-action="add-token-modal"><i class="ri-add-line"></i></button></div>
+    <div class="token-list">${myTokenItems}</div>
+    ${remainingTokens.length > 0 ? `
+      <div class="section-label" style="margin-top:16px"><i class="ri-list-check" style="font-size:14px;color:var(--text-muted)"></i> All Coins <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${remainingTokens.length})</span></div>
+      <div class="token-list">${remainingItems}</div>
+    ` : ''}
+    ${addTokenBtn}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 1page.to Tab - All projects with favorite toggle
+// ═══════════════════════════════════════════════════════════
+function renderOnePageTab() {
+  const allProjects = [
+    ...INFOWEB4_SITES.map(s => ({ ...s, isDefault: true })),
+    ...(state.customProjects || []).map(p => ({ ...p, isDefault: false }))
+  ];
+
+  const projectItems = allProjects.map(site => {
+    const faviconUrl = site.faviconUrl || getFaviconUrl(site.url);
+    const logoHtml = faviconUrl
+      ? `<div class="infoweb4-logo has-img" style="background:${site.color || '#00d4ff'}20"><img src="${escapeHtml(faviconUrl)}" alt="${escapeHtml(site.name)}" onerror="this.parentElement.classList.remove('has-img');this.parentElement.innerHTML='${site.logo || '🌐'}'"></div>`
+      : `<div class="infoweb4-logo" style="background:${site.color || '#00d4ff'}20">${site.logo || '🌐'}</div>`;
+    const categoryBadge = site.category ? `<span class="project-category-badge" style="background:${site.color || '#00d4ff'}20;color:${site.color || '#00d4ff'}">${escapeHtml(site.category)}</span>` : '';
+    const isFav = projectFavorites.includes(site.id);
+    return `
+    <div class="infoweb4-card" data-action="open-infoweb4" data-url="${escapeHtml(site.url)}">
+      ${logoHtml}
+      <div class="infoweb4-info">
+        <div class="infoweb4-name">${escapeHtml(site.name)} ${categoryBadge}</div>
+        <div class="infoweb4-url">${escapeHtml(site.url.replace('https://',''))}</div>
+      </div>
+      <div class="infoweb4-actions">
+        <button class="infoweb4-share" data-action="toggle-project-fav" data-project-id="${site.id}" style="${isFav ? 'color:#f59e0b' : ''}"><i class="${isFav ? 'ri-star-fill' : 'ri-star-line'}"></i></button>
+        <button class="infoweb4-share" data-action="share-infoweb4" data-url="${escapeHtml(site.url)}" data-name="${escapeHtml(site.name)}"><i class="ri-share-forward-line"></i></button>
+        ${!site.isDefault ? `<button class="infoweb4-share" data-action="remove-project" data-project-id="${site.id}"><i class="ri-delete-bin-line" style="color:var(--danger)"></i></button>` : ''}
+        <i class="ri-arrow-right-s-line" style="color:var(--text-muted)"></i>
+      </div>
+    </div>
+  `;
+  }).join('');
+
+  const addProjectBtn = `
+    <div class="token-add-card" data-action="add-project-modal">
+      <i class="ri-add-circle-line"></i>
+      <span>${escapeHtml(t('project_add'))}</span>
+    </div>
+  `;
+
+  return `
+    <div class="section-label"><i class="ri-pages-line" style="font-size:14px;color:var(--primary)"></i> 1page.to Projects <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${allProjects.length})</span> <button class="section-edit-btn" data-action="add-project-modal"><i class="ri-add-line"></i></button></div>
+    <div class="infoweb4-list">${projectItems}</div>
     ${addProjectBtn}
+    <div style="padding:12px 16px;text-align:center;color:var(--text-muted);font-size:11px">
+      <i class="ri-refresh-line"></i> API 연동 준비 중 - 30분마다 자동 업데이트 예정
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// News Tab - Placeholder
+// ═══════════════════════════════════════════════════════════
+function renderNewsTab() {
+  return `
+    <div class="tab-content-placeholder" style="padding:40px 16px;text-align:center">
+      <i class="ri-newspaper-line" style="font-size:48px;color:var(--primary);margin-bottom:12px"></i>
+      <h3 style="color:var(--text);margin-bottom:8px">Crypto News</h3>
+      <p style="color:var(--text-muted);font-size:13px;line-height:1.5">암호화폐 및 Web3 최신 뉴스를<br>실시간으로 확인하세요</p>
+      <div style="margin-top:20px;padding:16px;background:var(--bg-card);border-radius:12px;border:1px solid var(--bg-card-border)">
+        <i class="ri-tools-line" style="font-size:24px;color:var(--text-muted)"></i>
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px">업데이트 준비 중...</p>
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Meetup Tab - Placeholder
+// ═══════════════════════════════════════════════════════════
+function renderMeetupTab() {
+  return `
+    <div class="tab-content-placeholder" style="padding:40px 16px;text-align:center">
+      <i class="ri-group-line" style="font-size:48px;color:var(--primary);margin-bottom:12px"></i>
+      <h3 style="color:var(--text);margin-bottom:8px">밋업</h3>
+      <p style="color:var(--text-muted);font-size:13px;line-height:1.5">Web3 밋업 및 컨퍼런스 정보를<br>한눈에 확인하세요</p>
+      <div style="margin-top:20px;padding:16px;background:var(--bg-card);border-radius:12px;border:1px solid var(--bg-card-border)">
+        <i class="ri-tools-line" style="font-size:24px;color:var(--text-muted)"></i>
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px">업데이트 준비 중...</p>
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// KOL Tab - Placeholder
+// ═══════════════════════════════════════════════════════════
+function renderKolTab() {
+  return `
+    <div class="tab-content-placeholder" style="padding:40px 16px;text-align:center">
+      <i class="ri-user-voice-line" style="font-size:48px;color:var(--primary);margin-bottom:12px"></i>
+      <h3 style="color:var(--text);margin-bottom:8px">KOL</h3>
+      <p style="color:var(--text-muted);font-size:13px;line-height:1.5">Key Opinion Leaders 및<br>인플루언서 정보</p>
+      <div style="margin-top:20px;padding:16px;background:var(--bg-card);border-radius:12px;border:1px solid var(--bg-card-border)">
+        <i class="ri-tools-line" style="font-size:24px;color:var(--text-muted)"></i>
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px">업데이트 준비 중...</p>
+      </div>
+    </div>
   `;
 }
 
@@ -8744,6 +8998,28 @@ function handleAction(action, el) {
         saveState(); render();
       }
       break;
+
+    case 'toggle-project-fav': {
+      const projId = el.dataset.projectId;
+      if (projId) {
+        if (projectFavorites.includes(projId)) {
+          projectFavorites = projectFavorites.filter(id => id !== projId);
+        } else {
+          projectFavorites.push(projId);
+        }
+        saveProjectFavorites();
+        render();
+      }
+      break;
+    }
+    case 'quick-add-token': {
+      const qatId = el.dataset.tokenId;
+      if (qatId && !state.savedTokens.includes(qatId)) {
+        state.savedTokens.push(qatId);
+        saveState(); render();
+      }
+      break;
+    }
 
     // Org chart zoom/pan
     case 'org-zoom-in': {
