@@ -5509,6 +5509,18 @@ input, textarea, select {
   overflow: hidden;
 }
 
+.gc-display-words {
+  font-size: 12px;
+  color: var(--accent-primary, var(--accent, #10b981));
+  margin-top: 6px;
+  text-align: right;
+  word-break: break-all;
+  line-height: 1.4;
+  opacity: 0.85;
+  max-height: 40px;
+  overflow: hidden;
+}
+
 .gc-memory-row {
   display: flex;
   gap: 6px;

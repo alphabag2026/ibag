@@ -72,6 +72,7 @@ ipcMain.handle('toggle-pin', () => {
 });
 
 ipcMain.handle('get-pin-state', () => isPinned);
+ipcMain.handle('get-mini-mode', () => isMiniMode);
 
 ipcMain.handle('toggle-mini-mode', () => {
   isMiniMode = !isMiniMode;
@@ -96,6 +97,11 @@ ipcMain.handle('close-window', () => {
 
 ipcMain.handle('copy-to-clipboard', (event, text) => {
   clipboard.writeText(text);
+  return true;
+});
+
+ipcMain.handle('open-external', (event, url) => {
+  shell.openExternal(url);
   return true;
 });
 

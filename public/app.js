@@ -4229,6 +4229,267 @@ function formatCalcDisplay(val) {
   return parseFloat(parts[0]).toLocaleString() + '.' + (parts[1] || '');
 }
 
+// ═══ Number to words by language ═══
+function numberToKorean(num) {
+  if (num === 0) return '영';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const units = ['', '만', '억', '조', '경'];
+  const digits = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+  const subUnits = ['', '십', '백', '천'];
+  const intPart = Math.floor(num);
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 4) {
+    groups.unshift(str.slice(Math.max(0, i - 4), i));
+  }
+  let result = '';
+  const totalGroups = groups.length;
+  for (let gi = 0; gi < totalGroups; gi++) {
+    const g = groups[gi];
+    const unitIdx = totalGroups - 1 - gi;
+    let groupStr = '';
+    for (let di = 0; di < g.length; di++) {
+      const d = parseInt(g[di]);
+      if (d === 0) continue;
+      const subUnit = subUnits[g.length - 1 - di];
+      if (d === 1 && subUnit) groupStr += subUnit;
+      else groupStr += digits[d] + subUnit;
+    }
+    if (groupStr) result += groupStr + units[unitIdx];
+  }
+  const decPart = String(num).includes('.') ? String(num).split('.')[1] : '';
+  if (decPart) {
+    result += ' 점 ' + decPart.split('').map(d => digits[parseInt(d)] || '영').join('');
+  }
+  return (isNeg ? '마이너스 ' : '') + (result || '영');
+}
+
+function numberToChinese(num) {
+  if (num === 0) return '零';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const digits = ['零','一','二','三','四','五','六','七','八','九'];
+  const units = ['', '万', '亿', '万亿', '兆'];
+  const subUnits = ['', '十', '百', '千'];
+  const intPart = Math.floor(num);
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 4) {
+    groups.unshift(str.slice(Math.max(0, i - 4), i));
+  }
+  let result = '';
+  const totalGroups = groups.length;
+  for (let gi = 0; gi < totalGroups; gi++) {
+    const g = groups[gi];
+    const unitIdx = totalGroups - 1 - gi;
+    let groupStr = '';
+    let prevZero = false;
+    for (let di = 0; di < g.length; di++) {
+      const d = parseInt(g[di]);
+      if (d === 0) { prevZero = true; continue; }
+      if (prevZero && groupStr) groupStr += '零';
+      prevZero = false;
+      groupStr += digits[d] + subUnits[g.length - 1 - di];
+    }
+    if (groupStr) result += groupStr + units[unitIdx];
+  }
+  return (isNeg ? '负' : '') + (result || '零');
+}
+
+function numberToJapanese(num) {
+  if (num === 0) return '零';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const digits = ['','一','二','三','四','五','六','七','八','九'];
+  const units = ['', '万', '億', '兆', '京'];
+  const subUnits = ['', '十', '百', '千'];
+  const intPart = Math.floor(num);
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 4) {
+    groups.unshift(str.slice(Math.max(0, i - 4), i));
+  }
+  let result = '';
+  const totalGroups = groups.length;
+  for (let gi = 0; gi < totalGroups; gi++) {
+    const g = groups[gi];
+    const unitIdx = totalGroups - 1 - gi;
+    let groupStr = '';
+    for (let di = 0; di < g.length; di++) {
+      const d = parseInt(g[di]);
+      if (d === 0) continue;
+      const subUnit = subUnits[g.length - 1 - di];
+      if (d === 1 && subUnit) groupStr += subUnit;
+      else groupStr += digits[d] + subUnit;
+    }
+    if (groupStr) result += groupStr + units[unitIdx];
+  }
+  return (isNeg ? 'マイナス' : '') + (result || '零');
+}
+
+function numberToThai(num) {
+  if (num === 0) return 'ศูนย์';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const ones = ['','หนึ่ง','สอง','สาม','สี่','ห้า','หก','เจ็ด','แปด','เก้า'];
+  const intPart = Math.floor(num);
+  if (intPart >= 1e12) return intPart.toLocaleString('th-TH');
+  function readGroup(n) {
+    if (n === 0) return '';
+    const m = Math.floor(n / 1000000); const r = n % 1000000;
+    const ht = Math.floor(r / 100000); const tt = Math.floor((r % 100000) / 10000);
+    const t = Math.floor((r % 10000) / 1000); const h = Math.floor((r % 1000) / 100);
+    const te = Math.floor((r % 100) / 10); const o = r % 10;
+    let s = '';
+    if (m > 0) s += readGroup(m) + 'ล้าน';
+    if (ht > 0) s += ones[ht] + 'แสน';
+    if (tt > 0) s += ones[tt] + 'หมื่น';
+    if (t > 0) s += ones[t] + 'พัน';
+    if (h > 0) s += ones[h] + 'ร้อย';
+    if (te === 1) s += 'สิบ';
+    else if (te === 2) s += 'ยี่สิบ';
+    else if (te > 2) s += ones[te] + 'สิบ';
+    if (o === 1 && te > 0) s += 'เอ็ด';
+    else if (o > 0) s += ones[o];
+    return s;
+  }
+  return (isNeg ? 'ลบ' : '') + readGroup(intPart);
+}
+
+function numberToVietnamese(num) {
+  if (num === 0) return 'không';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const ones = ['không','một','hai','ba','bốn','năm','sáu','bảy','tám','chín'];
+  const intPart = Math.floor(num);
+  if (intPart >= 1e15) return intPart.toLocaleString('vi-VN');
+  function readTriple(h, t, o, hasHigher) {
+    let s = '';
+    if (h > 0) s += ones[h] + ' trăm ';
+    else if (hasHigher && (t > 0 || o > 0)) s += 'không trăm ';
+    if (t > 1) s += ones[t] + ' mươi ';
+    else if (t === 1) s += 'mười ';
+    else if (t === 0 && o > 0 && (h > 0 || hasHigher)) s += 'lẻ ';
+    if (o === 5 && t >= 1) s += 'lăm';
+    else if (o === 1 && t > 1) s += 'mốt';
+    else if (o > 0) s += ones[o];
+    return s.trim();
+  }
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 3) {
+    groups.unshift(str.slice(Math.max(0, i - 3), i));
+  }
+  const unitNames = ['', ' nghìn', ' triệu', ' tỷ', ' nghìn tỷ'];
+  let result = '';
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const padded = g.padStart(3, '0');
+    const h = parseInt(padded[0]), t = parseInt(padded[1]), o = parseInt(padded[2]);
+    const unitIdx = groups.length - 1 - i;
+    const hasHigher = i > 0;
+    const txt = readTriple(h, t, o, hasHigher);
+    if (txt) result += (result ? ' ' : '') + txt + (unitNames[unitIdx] || '');
+  }
+  return (isNeg ? 'âm ' : '') + result;
+}
+
+function numberToRussian(num) {
+  if (num === 0) return 'ноль';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const intPart = Math.floor(num);
+  if (intPart >= 1e15) return intPart.toLocaleString('ru-RU');
+  const ones = ['','один','два','три','четыре','пять','шесть','семь','восемь','девять'];
+  const teens = ['десять','одиннадцать','двенадцать','тринадцать','четырнадцать','пятнадцать','шестнадцать','семнадцать','восемнадцать','девятнадцать'];
+  const tens = ['','','двадцать','тридцать','сорок','пятьдесят','шестьдесят','семьдесят','восемьдесят','девяносто'];
+  const hundreds = ['','сто','двести','триста','четыреста','пятьсот','шестьсот','семьсот','восемьсот','девятьсот'];
+  function readTriple(n) {
+    if (n === 0) return '';
+    const h = Math.floor(n / 100), rest = n % 100, t = Math.floor(rest / 10), o = rest % 10;
+    let s = '';
+    if (h > 0) s += hundreds[h] + ' ';
+    if (rest >= 10 && rest <= 19) s += teens[rest - 10];
+    else { if (t > 0) s += tens[t] + ' '; if (o > 0) s += ones[o]; }
+    return s.trim();
+  }
+  const unitNames = [['','',''],['тысяча','тысячи','тысяч'],['миллион','миллиона','миллионов'],['миллиард','миллиарда','миллиардов'],['триллион','триллиона','триллионов']];
+  function getForm(n, forms) { const m = n % 100; if (m >= 11 && m <= 19) return forms[2]; const l = m % 10; if (l === 1) return forms[0]; if (l >= 2 && l <= 4) return forms[1]; return forms[2]; }
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 3) {
+    groups.unshift(parseInt(str.slice(Math.max(0, i - 3), i)));
+  }
+  let result = '';
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const unitIdx = groups.length - 1 - i;
+    if (g === 0) continue;
+    let txt = readTriple(g);
+    if (unitIdx === 1) { txt = txt.replace('один', 'одна').replace('два', 'две'); }
+    if (unitIdx > 0 && unitNames[unitIdx]) txt += ' ' + getForm(g, unitNames[unitIdx]);
+    result += (result ? ' ' : '') + txt;
+  }
+  return (isNeg ? 'минус ' : '') + result;
+}
+
+function numberToEnglish(num) {
+  if (num === 0) return 'zero';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const intPart = Math.floor(num);
+  if (intPart >= 1e15) return intPart.toLocaleString('en-US');
+  const ones = ['','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  const tens = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+  function readTriple(n) {
+    if (n === 0) return '';
+    const h = Math.floor(n / 100), rest = n % 100;
+    let s = '';
+    if (h > 0) s += ones[h] + ' hundred';
+    if (rest > 0) {
+      if (s) s += ' ';
+      if (rest < 20) s += ones[rest];
+      else s += tens[Math.floor(rest / 10)] + (rest % 10 ? '-' + ones[rest % 10] : '');
+    }
+    return s;
+  }
+  const unitNames = ['','thousand','million','billion','trillion'];
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 3) {
+    groups.unshift(parseInt(str.slice(Math.max(0, i - 3), i)));
+  }
+  let result = '';
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const unitIdx = groups.length - 1 - i;
+    if (g === 0) continue;
+    let txt = readTriple(g);
+    if (unitNames[unitIdx]) txt += ' ' + unitNames[unitIdx];
+    result += (result ? ' ' : '') + txt;
+  }
+  return (isNeg ? 'minus ' : '') + result;
+}
+
+function getNumberInWords(numStr) {
+  const num = parseFloat(numStr);
+  if (isNaN(num) || numStr === 'Error' || num === 0) return '';
+  const lang = state.language || 'ko';
+  const langInfo = LANGUAGES.find(l => l.code === lang) || LANGUAGES[0];
+  let words = '';
+  switch(lang) {
+    case 'ko': words = numberToKorean(num); break;
+    case 'zh': words = numberToChinese(num); break;
+    case 'ja': words = numberToJapanese(num); break;
+    case 'th': words = numberToThai(num); break;
+    case 'vi': words = numberToVietnamese(num); break;
+    case 'ru': words = numberToRussian(num); break;
+    default: words = numberToEnglish(num); break;
+  }
+  return langInfo.flag + ' ' + words;
+}
+
 function renderGeneralCalculator() {
   const displayVal = formatCalcDisplay(generalCalcDisplay);
   const opSymbol = generalCalcOperator ? ({'+':"+",'-':"\u2212",'*':"\u00d7",'/':"\u00f7"}[generalCalcOperator] || '') : '';
@@ -4243,6 +4504,7 @@ function renderGeneralCalculator() {
           <span class="gc-prev-value">${prevDisplay}</span>
         </div>
         <div class="gc-display-main">${displayVal}</div>
+        ${getNumberInWords(generalCalcDisplay) ? `<div class="gc-display-words">${getNumberInWords(generalCalcDisplay)}</div>` : ''}
       </div>
       <div class="gc-memory-row">
         <button class="gc-mem-btn" data-action="gc-mc">MC</button>

@@ -46,11 +46,11 @@ const INFOWEB4_SITES = [
 // Default middle tabs
 const DEFAULT_MIDDLE_TABS = [
   { id: 'my', label: 'MY', icon: 'ri-user-star-line' },
-  { id: 'ai', label: 'AI', icon: 'ri-robot-2-line' },
-  { id: 'project', label: '프로젝트', icon: 'ri-rocket-line' },
-  { id: 'predict', label: '예측', icon: 'ri-line-chart-line' },
-  { id: 'defi', label: '디파이', icon: 'ri-exchange-funds-line' },
-  { id: 'cefi', label: 'CEFi', icon: 'ri-bank-line' },
+  { id: 'coin', label: 'Coin', icon: 'ri-coin-line' },
+  { id: 'onepage', label: '1page.to', icon: 'ri-pages-line' },
+  { id: 'news', label: 'News', icon: 'ri-newspaper-line' },
+  { id: 'meetup', label: '밋업', icon: 'ri-group-line' },
+  { id: 'kol', label: 'KOL', icon: 'ri-user-voice-line' },
 ];
 
 // CoinGecko token IDs - Mainnet tokens with logos
@@ -179,7 +179,14 @@ let vaultOldPassword = '';
 let lifeItems = []; // { id, type:'photo'|'contact'|'address', title, description, imageData, phone, createdAt }
 let calcMode = 'currency'; // 'currency' | 'photo'
 let calcFrom = 'USD', calcTo = 'KRW', calcAmount = '';
-let calcTabMode = 'exchange'; // 'exchange' | 'fee'
+let calcTabMode = 'exchange'; // 'exchange' | 'fee' | 'general'
+
+// General Calculator state
+let generalCalcDisplay = '0';
+let generalCalcPrevValue = null;
+let generalCalcOperator = null;
+let generalCalcWaitingForOperand = false;
+let generalCalcMemory = 0;
 // Fee calculator state
 let feeCalcMode = 'forward'; // 'forward' = 금액→수수료 | 'reverse' = 목표금액→필요금액 | 'profit' = 수익계산
 let feePercent = ''; // 수수료 %
@@ -206,6 +213,7 @@ let scanDropdownSearch = '';
 let scanWalletAddress = '';
 // Org chart pan/zoom state
 let orgPanX = 0, orgPanY = 0, orgZoom = 1;
+let orgViewMode = 'tree'; // 'tree' | 'list-name' | 'list-amount'
 let orgIsPanning = false, orgPanStartX = 0, orgPanStartY = 0;
 let orgSearchVisible = false;
 // Interpreter state
@@ -258,6 +266,7 @@ let aiGeminiApiKeys = ['server-proxy']; // server proxy mode
 let aiCurrentKeyIndex = 0;
 let aiShowSettings = false;
 let aiChatHistory = []; // conversation history for context
+let aiPendingAttachments = []; // pending attachments for next message { type: 'image'|'video'|'file', data: string, name: string, preview: string }
 const AI_PROXY_URL = 'https://xplayvault-foftd3kr.manus.space/api/ibag-chat';
 const TRANSLATE_PROXY_URL = 'https://xplayvault-foftd3kr.manus.space/api/ibag-translate';
 
@@ -281,7 +290,7 @@ let tokenWs = null; // WebSocket for real-time price
 let tokenWsPrice = null; // real-time price from WebSocket
 let tokenWsPriceChange = null; // real-time price change
 let tokenFavorites = []; // list of favorited token IDs
-
+let projectFavorites = []; // list of favorited project IDs for MY tab
 // Load/save token favorites from localStorage
 function saveTokenFavorites() {
   try { localStorage.setItem('ibag_token_favorites', JSON.stringify(tokenFavorites)); } catch(e) {}
@@ -292,6 +301,25 @@ function loadTokenFavorites() {
     if (saved) tokenFavorites = JSON.parse(saved);
   } catch(e) { tokenFavorites = []; }
 }
+function saveProjectFavorites() {
+  try { localStorage.setItem('ibag_project_favorites', JSON.stringify(projectFavorites)); } catch(e) {}
+}
+function loadProjectFavorites() {
+  try {
+    const saved = localStorage.getItem('ibag_project_favorites');
+    if (saved) projectFavorites = JSON.parse(saved);
+  } catch(e) { projectFavorites = []; }
+}
+
+// KPI state
+let kpiScreen = 'list'; // 'list' | 'project' | 'task'
+let kpiProjects = [];
+let kpiSelectedProjectId = null;
+let kpiSelectedCategoryId = null;
+let kpiSelectedSubcategoryId = null;
+
+function saveKpiProjects() { try { localStorage.setItem('ibag_kpi_projects', JSON.stringify(kpiProjects)); } catch(e) {} }
+function loadKpiProjects() { try { const d = localStorage.getItem('ibag_kpi_projects'); if (d) kpiProjects = JSON.parse(d); } catch(e) {} }
 
 // Card state
 let cardScreen = 'main'; // 'main' | 'apply' | 'apply-design' | 'apply-form' | 'detail'
@@ -618,6 +646,7 @@ async function loadData() {
   loadClipboardItems();
   loadIdeaNotes();
   loadTokenFavorites();
+  loadProjectFavorites();
 }
 
 function detectSystemLanguage() {
@@ -1219,6 +1248,7 @@ function renderMainLayout() {
     case 'ibag': screenHtml = renderIBag(); break;
     case 'ai': screenHtml = renderAIChat(); break;
     case 'card': screenHtml = renderCardScreen(); break;
+    case 'kpi': screenHtml = renderKpiScreen(); break;
     case 'web3app': screenHtml = renderWeb3App(); break;
     // Sub screens
     case 'bookmark-detail': screenHtml = renderBookmarks(); break;
@@ -1447,8 +1477,8 @@ function renderHome() {
         <span>iBag</span>
       </div>
       <div class="action-btn" data-action="goto-calc">
-        <div class="action-icon" style="background:linear-gradient(135deg,#10b98115,#06b6d415)"><i class="ri-exchange-dollar-fill" style="color:#10b981"></i></div>
-        <span>USDT</span>
+        <div class="action-icon" style="background:linear-gradient(135deg,#10b98115,#06b6d415)"><i class="ri-calculator-line" style="color:#10b981"></i></div>
+        <span>${escapeHtml(t('action_calculator') || '계산기')}</span>
       </div>
       <div class="action-btn" data-action="goto-translate">
         <div class="action-icon" style="background:linear-gradient(135deg,#6366f115,#8b5cf615)"><i class="ri-translate-2" style="color:#6366f1"></i></div>
@@ -1458,9 +1488,9 @@ function renderHome() {
         <div class="action-icon" style="background:linear-gradient(135deg,#f9731615,#f59e0b15)"><i class="ri-download-cloud-2-fill" style="color:#f97316"></i></div>
         <span>Web3App</span>
       </div>
-      <div class="action-btn" data-action="goto-card-tab">
-        <div class="action-icon" style="background:linear-gradient(135deg,#8b5cf615,#a78bfa15)"><i class="ri-bank-card-fill" style="color:#8b5cf6"></i></div>
-        <span>${escapeHtml(t('tab_card') || 'Card')}</span>
+      <div class="action-btn" data-action="goto-kpi">
+        <div class="action-icon" style="background:linear-gradient(135deg,#8b5cf615,#a78bfa15)"><i class="ri-bar-chart-box-fill" style="color:#8b5cf6"></i></div>
+        <span>KPI</span>
       </div>
       <div class="action-btn" data-action="open-alpha-trip-home">
         <div class="action-icon" style="background:linear-gradient(135deg,#3b82f615,#2563eb15)"><i class="ri-plane-fill" style="color:#3b82f6"></i></div>
@@ -1484,8 +1514,17 @@ function renderHome() {
   let middleContent = '';
   if (activeMiddleTab === 'my') {
     middleContent = renderMyTab();
+  } else if (activeMiddleTab === 'coin') {
+    middleContent = renderCoinTab();
+  } else if (activeMiddleTab === 'onepage') {
+    middleContent = renderOnePageTab();
+  } else if (activeMiddleTab === 'news') {
+    middleContent = renderNewsTab();
+  } else if (activeMiddleTab === 'meetup') {
+    middleContent = renderMeetupTab();
+  } else if (activeMiddleTab === 'kol') {
+    middleContent = renderKolTab();
   } else {
-    // Other tabs show infoweb4 webview content
     const tabInfo = middleTabs.find(t => t.id === activeMiddleTab);
     middleContent = `
       <div class="tab-content-placeholder">
@@ -1604,14 +1643,249 @@ function renderMyTab() {
     <div class="token-list">${favTokenItems}</div>
   ` : '';
 
+  // MY tab: show only favorited projects
+  const myFavProjects = allProjects.filter(p => projectFavorites.includes(p.id));
+  const myFavProjectsHtml = myFavProjects.length > 0 ? myFavProjects.map(site => {
+    const faviconUrl = site.faviconUrl || getFaviconUrl(site.url);
+    const logoHtml = faviconUrl
+      ? `<div class="infoweb4-logo has-img" style="background:${site.color || '#00d4ff'}20"><img src="${escapeHtml(faviconUrl)}" alt="${escapeHtml(site.name)}" onerror="this.parentElement.classList.remove('has-img');this.parentElement.innerHTML='${site.logo || '🌐'}'"></div>`
+      : `<div class="infoweb4-logo" style="background:${site.color || '#00d4ff'}20">${site.logo || '🌐'}</div>`;
+    const categoryBadge = site.category ? `<span class="project-category-badge" style="background:${site.color || '#00d4ff'}20;color:${site.color || '#00d4ff'}">${escapeHtml(site.category)}</span>` : '';
+    return `
+    <div class="infoweb4-card" data-action="open-infoweb4" data-url="${escapeHtml(site.url)}">
+      ${logoHtml}
+      <div class="infoweb4-info">
+        <div class="infoweb4-name">${escapeHtml(site.name)} ${categoryBadge}</div>
+        <div class="infoweb4-url">${escapeHtml(site.url.replace('https://',''))}</div>
+      </div>
+      <div class="infoweb4-actions">
+        <button class="infoweb4-share" data-action="toggle-project-fav" data-project-id="${site.id}"><i class="ri-star-fill" style="color:#f59e0b"></i></button>
+        <i class="ri-arrow-right-s-line" style="color:var(--text-muted)"></i>
+      </div>
+    </div>
+  `;
+  }).join('') : '';
+
+  const myFavProjectSection = myFavProjects.length > 0 ? `
+    <div class="section-label" style="margin-top:16px"><i class="ri-star-fill" style="font-size:14px;color:#f59e0b"></i> 1page.to ${escapeHtml(t('tp_favorites') || 'Favorites')} <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${myFavProjects.length})</span></div>
+    <div class="infoweb4-list">${myFavProjectsHtml}</div>
+  ` : '';
+
   return `
     ${favSection}
     <div class="section-label">${escapeHtml(t('my_tokens'))} <button class="section-edit-btn" data-action="add-token-modal"><i class="ri-add-line"></i></button></div>
     <div class="token-list">${tokenItems}</div>
     ${addTokenBtn}
-    <div class="section-label" style="margin-top:16px"><i class="ri-rocket-line" style="font-size:14px;color:var(--primary)"></i> 1page.to ${escapeHtml(t('my_projects'))} <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${allProjects.length})</span> <button class="section-edit-btn" data-action="add-project-modal"><i class="ri-add-line"></i></button></div>
-    <div class="infoweb4-list">${infoweb4Items}</div>
+    ${myFavProjectSection}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Coin Tab - All coins with detailed info
+// ═══════════════════════════════════════════════════════════
+function renderCoinTab() {
+  const allTokens = [...TOKEN_LIST, ...customTokens];
+  
+  // Favorite tokens section
+  const favTokenItems = tokenFavorites.length > 0 ? allTokens.filter(tk => tokenFavorites.includes(tk.id)).map(tk => {
+    const price = tokenPrices[tk.id];
+    const usdPrice = price ? price.usd : 0;
+    const change24h = price ? price.usd_24h_change : 0;
+    const changeColor = change24h >= 0 ? '#10b981' : '#ef4444';
+    const changeSign = change24h >= 0 ? '+' : '';
+    const logoHtml = tk.logo
+      ? `<div class="token-icon has-logo" style="background:${tk.color}20"><img src="${escapeHtml(tk.logo)}" alt="${escapeHtml(tk.symbol)}" onerror="this.parentElement.classList.remove('has-logo');this.parentElement.style.color='${tk.color}';this.parentElement.textContent='${tk.icon}'"></div>`
+      : `<div class="token-icon" style="background:${tk.color}20;color:${tk.color}">${tk.icon}</div>`;
+    return `
+      <div class="token-card" data-action="open-token-detail" data-token-id="${tk.id}" style="cursor:pointer">
+        ${logoHtml}
+        <div class="token-info">
+          <div class="token-name">${escapeHtml(tk.name)} <span style="font-size:10px;color:var(--text-muted);font-weight:400">${tk.symbol}</span></div>
+          <div class="token-price">$${usdPrice ? usdPrice.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '0.00'}</div>
+        </div>
+        <div class="token-change" style="color:${changeColor}">
+          ${changeSign}${change24h ? change24h.toFixed(2) : '0.00'}%
+        </div>
+        <button class="token-remove-btn" data-action="remove-favorite-token" data-token-id="${tk.id}" title="Remove from favorites"><i class="ri-star-fill" style="color:#f59e0b"></i></button>
+      </div>
+    `;
+  }).join('') : '';
+
+  const favSection = tokenFavorites.length > 0 ? `
+    <div class="section-label"><i class="ri-star-fill" style="color:#f59e0b;font-size:14px"></i> ${escapeHtml(t('tp_favorites') || 'Favorites')} <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${tokenFavorites.length})</span></div>
+    <div class="token-list">${favTokenItems}</div>
+  ` : '';
+
+  // My tokens (user-added)
+  const myTokens = allTokens.filter(tk => tk.fixed || state.savedTokens.includes(tk.id));
+  const myTokenItems = myTokens.map(tk => {
+    const price = tokenPrices[tk.id];
+    const usdPrice = price ? price.usd : 0;
+    const change24h = price ? price.usd_24h_change : 0;
+    const changeColor = change24h >= 0 ? '#10b981' : '#ef4444';
+    const changeSign = change24h >= 0 ? '+' : '';
+    const logoHtml = tk.logo
+      ? `<div class="token-icon has-logo" style="background:${tk.color}20"><img src="${escapeHtml(tk.logo)}" alt="${escapeHtml(tk.symbol)}" onerror="this.parentElement.classList.remove('has-logo');this.parentElement.style.color='${tk.color}';this.parentElement.textContent='${tk.icon}'"></div>`
+      : `<div class="token-icon" style="background:${tk.color}20;color:${tk.color}">${tk.icon}</div>`;
+    return `
+      <div class="token-card" data-action="open-token-detail" data-token-id="${tk.id}" style="cursor:pointer">
+        ${logoHtml}
+        <div class="token-info">
+          <div class="token-name">${escapeHtml(tk.name)} <span style="font-size:10px;color:var(--text-muted);font-weight:400">${tk.symbol}</span></div>
+          <div class="token-price">$${usdPrice ? usdPrice.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '0.00'}</div>
+        </div>
+        <div class="token-change" style="color:${changeColor}">
+          ${changeSign}${change24h ? change24h.toFixed(2) : '0.00'}%
+        </div>
+        ${!tk.fixed ? `<button class="token-remove-btn" data-action="remove-token" data-token-id="${tk.id}" title="${escapeHtml(t('token_remove'))}"><i class="ri-close-circle-line"></i></button>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  // All available tokens (not yet added)
+  const remainingTokens = allTokens.filter(tk => !tk.fixed && !state.savedTokens.includes(tk.id));
+  const remainingItems = remainingTokens.map(tk => {
+    const price = tokenPrices[tk.id];
+    const usdPrice = price ? price.usd : 0;
+    const change24h = price ? price.usd_24h_change : 0;
+    const changeColor = change24h >= 0 ? '#10b981' : '#ef4444';
+    const changeSign = change24h >= 0 ? '+' : '';
+    const logoHtml = tk.logo
+      ? `<div class="token-icon has-logo" style="background:${tk.color}20"><img src="${escapeHtml(tk.logo)}" alt="${escapeHtml(tk.symbol)}" onerror="this.parentElement.classList.remove('has-logo');this.parentElement.style.color='${tk.color}';this.parentElement.textContent='${tk.icon}'"></div>`
+      : `<div class="token-icon" style="background:${tk.color}20;color:${tk.color}">${tk.icon}</div>`;
+    return `
+      <div class="token-card" data-action="open-token-detail" data-token-id="${tk.id}" style="cursor:pointer">
+        ${logoHtml}
+        <div class="token-info">
+          <div class="token-name">${escapeHtml(tk.name)} <span style="font-size:10px;color:var(--text-muted);font-weight:400">${tk.symbol}</span></div>
+          <div class="token-price">$${usdPrice ? usdPrice.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '0.00'}</div>
+        </div>
+        <div class="token-change" style="color:${changeColor}">
+          ${changeSign}${change24h ? change24h.toFixed(2) : '0.00'}%
+        </div>
+        <button class="token-remove-btn" data-action="quick-add-token" data-token-id="${tk.id}" title="Add to MY"><i class="ri-add-circle-line" style="color:var(--primary)"></i></button>
+      </div>
+    `;
+  }).join('');
+
+  // Add token button
+  const addTokenBtn = `
+    <div class="token-add-card" data-action="add-token-modal">
+      <i class="ri-add-circle-line"></i>
+      <span>${escapeHtml(t('token_add'))}</span>
+    </div>
+  `;
+
+  return `
+    ${favSection}
+    <div class="section-label"><i class="ri-coin-line" style="font-size:14px;color:var(--primary)"></i> ${escapeHtml(t('my_tokens'))} <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${myTokens.length})</span> <button class="section-edit-btn" data-action="add-token-modal"><i class="ri-add-line"></i></button></div>
+    <div class="token-list">${myTokenItems}</div>
+    ${remainingTokens.length > 0 ? `
+      <div class="section-label" style="margin-top:16px"><i class="ri-list-check" style="font-size:14px;color:var(--text-muted)"></i> All Coins <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${remainingTokens.length})</span></div>
+      <div class="token-list">${remainingItems}</div>
+    ` : ''}
+    ${addTokenBtn}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 1page.to Tab - All projects with favorite toggle
+// ═══════════════════════════════════════════════════════════
+function renderOnePageTab() {
+  const allProjects = [
+    ...INFOWEB4_SITES.map(s => ({ ...s, isDefault: true })),
+    ...(state.customProjects || []).map(p => ({ ...p, isDefault: false }))
+  ];
+
+  const projectItems = allProjects.map(site => {
+    const faviconUrl = site.faviconUrl || getFaviconUrl(site.url);
+    const logoHtml = faviconUrl
+      ? `<div class="infoweb4-logo has-img" style="background:${site.color || '#00d4ff'}20"><img src="${escapeHtml(faviconUrl)}" alt="${escapeHtml(site.name)}" onerror="this.parentElement.classList.remove('has-img');this.parentElement.innerHTML='${site.logo || '🌐'}'"></div>`
+      : `<div class="infoweb4-logo" style="background:${site.color || '#00d4ff'}20">${site.logo || '🌐'}</div>`;
+    const categoryBadge = site.category ? `<span class="project-category-badge" style="background:${site.color || '#00d4ff'}20;color:${site.color || '#00d4ff'}">${escapeHtml(site.category)}</span>` : '';
+    const isFav = projectFavorites.includes(site.id);
+    return `
+    <div class="infoweb4-card" data-action="open-infoweb4" data-url="${escapeHtml(site.url)}">
+      ${logoHtml}
+      <div class="infoweb4-info">
+        <div class="infoweb4-name">${escapeHtml(site.name)} ${categoryBadge}</div>
+        <div class="infoweb4-url">${escapeHtml(site.url.replace('https://',''))}</div>
+      </div>
+      <div class="infoweb4-actions">
+        <button class="infoweb4-share" data-action="toggle-project-fav" data-project-id="${site.id}" style="${isFav ? 'color:#f59e0b' : ''}"><i class="${isFav ? 'ri-star-fill' : 'ri-star-line'}"></i></button>
+        <button class="infoweb4-share" data-action="share-infoweb4" data-url="${escapeHtml(site.url)}" data-name="${escapeHtml(site.name)}"><i class="ri-share-forward-line"></i></button>
+        ${!site.isDefault ? `<button class="infoweb4-share" data-action="remove-project" data-project-id="${site.id}"><i class="ri-delete-bin-line" style="color:var(--danger)"></i></button>` : ''}
+        <i class="ri-arrow-right-s-line" style="color:var(--text-muted)"></i>
+      </div>
+    </div>
+  `;
+  }).join('');
+
+  const addProjectBtn = `
+    <div class="token-add-card" data-action="add-project-modal">
+      <i class="ri-add-circle-line"></i>
+      <span>${escapeHtml(t('project_add'))}</span>
+    </div>
+  `;
+
+  return `
+    <div class="section-label"><i class="ri-pages-line" style="font-size:14px;color:var(--primary)"></i> 1page.to Projects <span style="font-size:11px;color:var(--text-muted);font-weight:400">(${allProjects.length})</span> <button class="section-edit-btn" data-action="add-project-modal"><i class="ri-add-line"></i></button></div>
+    <div class="infoweb4-list">${projectItems}</div>
     ${addProjectBtn}
+    <div style="padding:12px 16px;text-align:center;color:var(--text-muted);font-size:11px">
+      <i class="ri-refresh-line"></i> API 연동 준비 중 - 30분마다 자동 업데이트 예정
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// News Tab - Placeholder
+// ═══════════════════════════════════════════════════════════
+function renderNewsTab() {
+  return `
+    <div class="tab-content-placeholder" style="padding:40px 16px;text-align:center">
+      <i class="ri-newspaper-line" style="font-size:48px;color:var(--primary);margin-bottom:12px"></i>
+      <h3 style="color:var(--text);margin-bottom:8px">Crypto News</h3>
+      <p style="color:var(--text-muted);font-size:13px;line-height:1.5">암호화폐 및 Web3 최신 뉴스를<br>실시간으로 확인하세요</p>
+      <div style="margin-top:20px;padding:16px;background:var(--bg-card);border-radius:12px;border:1px solid var(--bg-card-border)">
+        <i class="ri-tools-line" style="font-size:24px;color:var(--text-muted)"></i>
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px">업데이트 준비 중...</p>
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Meetup Tab - Placeholder
+// ═══════════════════════════════════════════════════════════
+function renderMeetupTab() {
+  return `
+    <div class="tab-content-placeholder" style="padding:40px 16px;text-align:center">
+      <i class="ri-group-line" style="font-size:48px;color:var(--primary);margin-bottom:12px"></i>
+      <h3 style="color:var(--text);margin-bottom:8px">밋업</h3>
+      <p style="color:var(--text-muted);font-size:13px;line-height:1.5">Web3 밋업 및 컨퍼런스 정보를<br>한눈에 확인하세요</p>
+      <div style="margin-top:20px;padding:16px;background:var(--bg-card);border-radius:12px;border:1px solid var(--bg-card-border)">
+        <i class="ri-tools-line" style="font-size:24px;color:var(--text-muted)"></i>
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px">업데이트 준비 중...</p>
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// KOL Tab - Placeholder
+// ═══════════════════════════════════════════════════════════
+function renderKolTab() {
+  return `
+    <div class="tab-content-placeholder" style="padding:40px 16px;text-align:center">
+      <i class="ri-user-voice-line" style="font-size:48px;color:var(--primary);margin-bottom:12px"></i>
+      <h3 style="color:var(--text);margin-bottom:8px">KOL</h3>
+      <p style="color:var(--text-muted);font-size:13px;line-height:1.5">Key Opinion Leaders 및<br>인플루언서 정보</p>
+      <div style="margin-top:20px;padding:16px;background:var(--bg-card);border-radius:12px;border:1px solid var(--bg-card-border)">
+        <i class="ri-tools-line" style="font-size:24px;color:var(--text-muted)"></i>
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px">업데이트 준비 중...</p>
+      </div>
+    </div>
   `;
 }
 
@@ -2276,15 +2550,27 @@ function ideaTouchMove(e) {
 }
 
 // ─── Audio Recording ───
+function getAudioMimeType() {
+  if (typeof MediaRecorder !== 'undefined') {
+    if (MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return 'audio/webm;codecs=opus';
+    if (MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm';
+    if (MediaRecorder.isTypeSupported('audio/ogg')) return 'audio/ogg';
+  }
+  return ''; // let browser choose default
+}
 async function ideaStartAudioRecording() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     ideaRecordedChunks = [];
-    ideaMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    const audioMime = getAudioMimeType();
+    const recorderOptions = audioMime ? { mimeType: audioMime } : {};
+    ideaMediaRecorder = new MediaRecorder(stream, recorderOptions);
+    const actualMime = ideaMediaRecorder.mimeType || audioMime || 'audio/mp4';
     ideaMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) ideaRecordedChunks.push(e.data); };
     ideaMediaRecorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(ideaRecordedChunks, { type: 'audio/webm' });
+      const blob = new Blob(ideaRecordedChunks, { type: actualMime });
       const reader = new FileReader();
       reader.onloadend = async () => {
         const mediaId = 'audio_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
@@ -2318,17 +2604,29 @@ function ideaStopAudioRecording() {
 }
 
 // ─── Video Recording ───
+function getVideoMimeType() {
+  if (typeof MediaRecorder !== 'undefined') {
+    if (MediaRecorder.isTypeSupported('video/mp4')) return 'video/mp4';
+    if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) return 'video/webm;codecs=vp9,opus';
+    if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) return 'video/webm;codecs=vp8,opus';
+    if (MediaRecorder.isTypeSupported('video/webm')) return 'video/webm';
+  }
+  return ''; // let browser choose default
+}
 async function ideaStartVideoRecording() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: true });
     ideaVideoStream = stream;
     ideaRecordedChunks = [];
-    ideaMediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    const videoMime = getVideoMimeType();
+    const recorderOptions = videoMime ? { mimeType: videoMime } : {};
+    ideaMediaRecorder = new MediaRecorder(stream, recorderOptions);
+    const actualMime = ideaMediaRecorder.mimeType || videoMime || 'video/mp4';
     ideaMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) ideaRecordedChunks.push(e.data); };
     ideaMediaRecorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
       ideaVideoStream = null;
-      const blob = new Blob(ideaRecordedChunks, { type: 'video/webm' });
+      const blob = new Blob(ideaRecordedChunks, { type: actualMime });
       const reader = new FileReader();
       reader.onloadend = async () => {
         const mediaId = 'video_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
@@ -2416,9 +2714,11 @@ async function ideaPlayAudio(mediaId) {
   const media = await getIdeaMedia(mediaId).catch(() => null);
   if (!media) return;
   ideaCurrentAudio = new Audio(media.data);
+  ideaCurrentAudio.setAttribute('playsinline', '');
   ideaPlayingAudioId = mediaId;
   ideaCurrentAudio.onended = () => { ideaPlayingAudioId = null; ideaCurrentAudio = null; loadIdeaMediaList(); };
-  ideaCurrentAudio.play();
+  ideaCurrentAudio.onerror = (e) => { console.error('Audio play error:', e); ideaPlayingAudioId = null; ideaCurrentAudio = null; loadIdeaMediaList(); alert('이 음성 파일을 재생할 수 없습니다. 새로 녹음해주세요.'); };
+  ideaCurrentAudio.play().catch(err => { console.error('Audio play failed:', err); ideaPlayingAudioId = null; ideaCurrentAudio = null; loadIdeaMediaList(); alert('이 음성 파일을 재생할 수 없습니다. 새로 녹음해주세요.'); });
   loadIdeaMediaList();
 }
 
@@ -2428,7 +2728,7 @@ async function ideaPlayVideo(mediaId) {
   // Open in fullscreen overlay
   const overlay = document.createElement('div');
   overlay.className = 'idea-video-overlay';
-  overlay.innerHTML = `<div class="idea-video-overlay-inner"><video controls autoplay src="${media.data}" style="max-width:100%;max-height:80vh;border-radius:12px"></video><button class="idea-video-close" onclick="this.parentElement.parentElement.remove()"><i class="ri-close-line"></i></button></div>`;
+  overlay.innerHTML = `<div class="idea-video-overlay-inner"><video controls autoplay playsinline webkit-playsinline src="${media.data}" style="max-width:100%;max-height:80vh;border-radius:12px" onerror="alert('이 영상 파일을 재생할 수 없습니다. 새로 녹화해주세요.');this.parentElement.parentElement.remove()"></video><button class="idea-video-close" onclick="this.parentElement.parentElement.remove()"><i class="ri-close-line"></i></button></div>`;
   document.body.appendChild(overlay);
 }
 
@@ -2470,13 +2770,26 @@ function renderCalculator() {
   const tabHtml = `
     <div class="calc-tab-bar">
       <button class="calc-tab-btn ${calcTabMode === 'exchange' ? 'active' : ''}" data-action="calc-tab-exchange">
-        <i class="ri-exchange-dollar-line"></i> ${escapeHtml(t('calc_tab_exchange') || '환율 계산기')}
+        <i class="ri-exchange-dollar-line"></i> USDT
       </button>
       <button class="calc-tab-btn ${calcTabMode === 'fee' ? 'active' : ''}" data-action="calc-tab-fee">
-        <i class="ri-percent-line"></i> ${escapeHtml(t('calc_tab_fee') || '수수료 계산기')}
+        <i class="ri-percent-line"></i> ${escapeHtml(t('calc_tab_fee') || '수수료')}
+      </button>
+      <button class="calc-tab-btn ${calcTabMode === 'general' ? 'active' : ''}" data-action="calc-tab-general">
+        <i class="ri-calculator-line"></i> ${escapeHtml(t('calc_tab_general') || '일반')}
       </button>
     </div>
   `;
+
+  if (calcTabMode === 'general') {
+    return `
+      <div class="sub-header"><button data-action="go-back"><i class="ri-arrow-left-line"></i></button><span>${escapeHtml(t('calc_title') || 'iBag 계산기')}</span></div>
+      <div class="calc-container">
+        ${tabHtml}
+        ${renderGeneralCalculator()}
+      </div>
+    `;
+  }
 
   if (calcTabMode === 'fee') {
     return `
@@ -3794,7 +4107,442 @@ function renderFeeCalculator() {
     </div>
     ${resultSection}
   `;
-}// ═════════════════════════════════════════════════════════════
+}
+
+// ═════════════════════════════════════════════════════════════
+// GENERAL CALCULATOR
+// ═════════════════════════════════════════════════════════════
+
+function generalCalcReset() {
+  generalCalcDisplay = '0';
+  generalCalcPrevValue = null;
+  generalCalcOperator = null;
+  generalCalcWaitingForOperand = false;
+}
+
+function generalCalcInputDigit(digit) {
+  if (generalCalcWaitingForOperand) {
+    generalCalcDisplay = digit;
+    generalCalcWaitingForOperand = false;
+  } else {
+    generalCalcDisplay = generalCalcDisplay === '0' ? digit : generalCalcDisplay + digit;
+  }
+}
+
+function generalCalcInputDot() {
+  if (generalCalcWaitingForOperand) {
+    generalCalcDisplay = '0.';
+    generalCalcWaitingForOperand = false;
+    return;
+  }
+  if (!generalCalcDisplay.includes('.')) {
+    generalCalcDisplay += '.';
+  }
+}
+
+function generalCalcToggleSign() {
+  const val = parseFloat(generalCalcDisplay);
+  if (val !== 0) {
+    generalCalcDisplay = (-val).toString();
+  }
+}
+
+function generalCalcPercent() {
+  const val = parseFloat(generalCalcDisplay);
+  if (generalCalcPrevValue !== null && generalCalcOperator) {
+    generalCalcDisplay = (generalCalcPrevValue * val / 100).toString();
+  } else {
+    generalCalcDisplay = (val / 100).toString();
+  }
+}
+
+function generalCalcPerformOperation(nextOp) {
+  const inputValue = parseFloat(generalCalcDisplay);
+  
+  if (generalCalcPrevValue === null) {
+    generalCalcPrevValue = inputValue;
+  } else if (generalCalcOperator) {
+    const result = generalCalcCalculate(generalCalcPrevValue, inputValue, generalCalcOperator);
+    generalCalcDisplay = String(result);
+    generalCalcPrevValue = result;
+  }
+  
+  generalCalcWaitingForOperand = true;
+  generalCalcOperator = nextOp;
+}
+
+function generalCalcCalculate(prev, next, op) {
+  switch (op) {
+    case '+': return prev + next;
+    case '-': return prev - next;
+    case '*': return prev * next;
+    case '/': return next !== 0 ? prev / next : 0;
+    default: return next;
+  }
+}
+
+function generalCalcEquals() {
+  if (generalCalcOperator === null || generalCalcPrevValue === null) return;
+  const inputValue = parseFloat(generalCalcDisplay);
+  const result = generalCalcCalculate(generalCalcPrevValue, inputValue, generalCalcOperator);
+  generalCalcDisplay = String(result);
+  generalCalcPrevValue = null;
+  generalCalcOperator = null;
+  generalCalcWaitingForOperand = true;
+}
+
+function generalCalcBackspace() {
+  if (generalCalcWaitingForOperand) return;
+  if (generalCalcDisplay.length > 1) {
+    generalCalcDisplay = generalCalcDisplay.slice(0, -1);
+  } else {
+    generalCalcDisplay = '0';
+  }
+}
+
+function generalCalcMemoryAdd() {
+  generalCalcMemory += parseFloat(generalCalcDisplay);
+}
+
+function generalCalcMemorySub() {
+  generalCalcMemory -= parseFloat(generalCalcDisplay);
+}
+
+function generalCalcMemoryRecall() {
+  generalCalcDisplay = String(generalCalcMemory);
+  generalCalcWaitingForOperand = true;
+}
+
+function generalCalcMemoryClear() {
+  generalCalcMemory = 0;
+}
+
+function formatCalcDisplay(val) {
+  if (val === 'Error') return 'Error';
+  const num = parseFloat(val);
+  if (isNaN(num)) return '0';
+  if (val.endsWith('.')) return val;
+  if (Number.isInteger(num) && !val.includes('.')) {
+    return num.toLocaleString();
+  }
+  const parts = val.split('.');
+  return parseFloat(parts[0]).toLocaleString() + '.' + (parts[1] || '');
+}
+
+// ═══ Number to words by language ═══
+function numberToKorean(num) {
+  if (num === 0) return '영';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const units = ['', '만', '억', '조', '경'];
+  const digits = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+  const subUnits = ['', '십', '백', '천'];
+  const intPart = Math.floor(num);
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 4) {
+    groups.unshift(str.slice(Math.max(0, i - 4), i));
+  }
+  let result = '';
+  const totalGroups = groups.length;
+  for (let gi = 0; gi < totalGroups; gi++) {
+    const g = groups[gi];
+    const unitIdx = totalGroups - 1 - gi;
+    let groupStr = '';
+    for (let di = 0; di < g.length; di++) {
+      const d = parseInt(g[di]);
+      if (d === 0) continue;
+      const subUnit = subUnits[g.length - 1 - di];
+      if (d === 1 && subUnit) groupStr += subUnit;
+      else groupStr += digits[d] + subUnit;
+    }
+    if (groupStr) result += groupStr + units[unitIdx];
+  }
+  const decPart = String(num).includes('.') ? String(num).split('.')[1] : '';
+  if (decPart) {
+    result += ' 점 ' + decPart.split('').map(d => digits[parseInt(d)] || '영').join('');
+  }
+  return (isNeg ? '마이너스 ' : '') + (result || '영');
+}
+
+function numberToChinese(num) {
+  if (num === 0) return '零';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const digits = ['零','一','二','三','四','五','六','七','八','九'];
+  const units = ['', '万', '亿', '万亿', '兆'];
+  const subUnits = ['', '十', '百', '千'];
+  const intPart = Math.floor(num);
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 4) {
+    groups.unshift(str.slice(Math.max(0, i - 4), i));
+  }
+  let result = '';
+  const totalGroups = groups.length;
+  for (let gi = 0; gi < totalGroups; gi++) {
+    const g = groups[gi];
+    const unitIdx = totalGroups - 1 - gi;
+    let groupStr = '';
+    let prevZero = false;
+    for (let di = 0; di < g.length; di++) {
+      const d = parseInt(g[di]);
+      if (d === 0) { prevZero = true; continue; }
+      if (prevZero && groupStr) groupStr += '零';
+      prevZero = false;
+      groupStr += digits[d] + subUnits[g.length - 1 - di];
+    }
+    if (groupStr) result += groupStr + units[unitIdx];
+  }
+  return (isNeg ? '负' : '') + (result || '零');
+}
+
+function numberToJapanese(num) {
+  if (num === 0) return '零';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const digits = ['','一','二','三','四','五','六','七','八','九'];
+  const units = ['', '万', '億', '兆', '京'];
+  const subUnits = ['', '十', '百', '千'];
+  const intPart = Math.floor(num);
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 4) {
+    groups.unshift(str.slice(Math.max(0, i - 4), i));
+  }
+  let result = '';
+  const totalGroups = groups.length;
+  for (let gi = 0; gi < totalGroups; gi++) {
+    const g = groups[gi];
+    const unitIdx = totalGroups - 1 - gi;
+    let groupStr = '';
+    for (let di = 0; di < g.length; di++) {
+      const d = parseInt(g[di]);
+      if (d === 0) continue;
+      const subUnit = subUnits[g.length - 1 - di];
+      if (d === 1 && subUnit) groupStr += subUnit;
+      else groupStr += digits[d] + subUnit;
+    }
+    if (groupStr) result += groupStr + units[unitIdx];
+  }
+  return (isNeg ? 'マイナス' : '') + (result || '零');
+}
+
+function numberToThai(num) {
+  if (num === 0) return 'ศูนย์';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const ones = ['','หนึ่ง','สอง','สาม','สี่','ห้า','หก','เจ็ด','แปด','เก้า'];
+  const intPart = Math.floor(num);
+  if (intPart >= 1e12) return intPart.toLocaleString('th-TH');
+  function readGroup(n) {
+    if (n === 0) return '';
+    const m = Math.floor(n / 1000000); const r = n % 1000000;
+    const ht = Math.floor(r / 100000); const tt = Math.floor((r % 100000) / 10000);
+    const t = Math.floor((r % 10000) / 1000); const h = Math.floor((r % 1000) / 100);
+    const te = Math.floor((r % 100) / 10); const o = r % 10;
+    let s = '';
+    if (m > 0) s += readGroup(m) + 'ล้าน';
+    if (ht > 0) s += ones[ht] + 'แสน';
+    if (tt > 0) s += ones[tt] + 'หมื่น';
+    if (t > 0) s += ones[t] + 'พัน';
+    if (h > 0) s += ones[h] + 'ร้อย';
+    if (te === 1) s += 'สิบ';
+    else if (te === 2) s += 'ยี่สิบ';
+    else if (te > 2) s += ones[te] + 'สิบ';
+    if (o === 1 && te > 0) s += 'เอ็ด';
+    else if (o > 0) s += ones[o];
+    return s;
+  }
+  return (isNeg ? 'ลบ' : '') + readGroup(intPart);
+}
+
+function numberToVietnamese(num) {
+  if (num === 0) return 'không';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const ones = ['không','một','hai','ba','bốn','năm','sáu','bảy','tám','chín'];
+  const intPart = Math.floor(num);
+  if (intPart >= 1e15) return intPart.toLocaleString('vi-VN');
+  function readTriple(h, t, o, hasHigher) {
+    let s = '';
+    if (h > 0) s += ones[h] + ' trăm ';
+    else if (hasHigher && (t > 0 || o > 0)) s += 'không trăm ';
+    if (t > 1) s += ones[t] + ' mươi ';
+    else if (t === 1) s += 'mười ';
+    else if (t === 0 && o > 0 && (h > 0 || hasHigher)) s += 'lẻ ';
+    if (o === 5 && t >= 1) s += 'lăm';
+    else if (o === 1 && t > 1) s += 'mốt';
+    else if (o > 0) s += ones[o];
+    return s.trim();
+  }
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 3) {
+    groups.unshift(str.slice(Math.max(0, i - 3), i));
+  }
+  const unitNames = ['', ' nghìn', ' triệu', ' tỷ', ' nghìn tỷ'];
+  let result = '';
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const padded = g.padStart(3, '0');
+    const h = parseInt(padded[0]), t = parseInt(padded[1]), o = parseInt(padded[2]);
+    const unitIdx = groups.length - 1 - i;
+    const hasHigher = i > 0;
+    const txt = readTriple(h, t, o, hasHigher);
+    if (txt) result += (result ? ' ' : '') + txt + (unitNames[unitIdx] || '');
+  }
+  return (isNeg ? 'âm ' : '') + result;
+}
+
+function numberToRussian(num) {
+  if (num === 0) return 'ноль';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const intPart = Math.floor(num);
+  if (intPart >= 1e15) return intPart.toLocaleString('ru-RU');
+  const ones = ['','один','два','три','четыре','пять','шесть','семь','восемь','девять'];
+  const teens = ['десять','одиннадцать','двенадцать','тринадцать','четырнадцать','пятнадцать','шестнадцать','семнадцать','восемнадцать','девятнадцать'];
+  const tens = ['','','двадцать','тридцать','сорок','пятьдесят','шестьдесят','семьдесят','восемьдесят','девяносто'];
+  const hundreds = ['','сто','двести','триста','четыреста','пятьсот','шестьсот','семьсот','восемьсот','девятьсот'];
+  function readTriple(n) {
+    if (n === 0) return '';
+    const h = Math.floor(n / 100), rest = n % 100, t = Math.floor(rest / 10), o = rest % 10;
+    let s = '';
+    if (h > 0) s += hundreds[h] + ' ';
+    if (rest >= 10 && rest <= 19) s += teens[rest - 10];
+    else { if (t > 0) s += tens[t] + ' '; if (o > 0) s += ones[o]; }
+    return s.trim();
+  }
+  const unitNames = [['','',''],['тысяча','тысячи','тысяч'],['миллион','миллиона','миллионов'],['миллиард','миллиарда','миллиардов'],['триллион','триллиона','триллионов']];
+  function getForm(n, forms) { const m = n % 100; if (m >= 11 && m <= 19) return forms[2]; const l = m % 10; if (l === 1) return forms[0]; if (l >= 2 && l <= 4) return forms[1]; return forms[2]; }
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 3) {
+    groups.unshift(parseInt(str.slice(Math.max(0, i - 3), i)));
+  }
+  let result = '';
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const unitIdx = groups.length - 1 - i;
+    if (g === 0) continue;
+    let txt = readTriple(g);
+    if (unitIdx === 1) { txt = txt.replace('один', 'одна').replace('два', 'две'); }
+    if (unitIdx > 0 && unitNames[unitIdx]) txt += ' ' + getForm(g, unitNames[unitIdx]);
+    result += (result ? ' ' : '') + txt;
+  }
+  return (isNeg ? 'минус ' : '') + result;
+}
+
+function numberToEnglish(num) {
+  if (num === 0) return 'zero';
+  if (isNaN(num) || !isFinite(num)) return '';
+  const isNeg = num < 0; num = Math.abs(num);
+  const intPart = Math.floor(num);
+  if (intPart >= 1e15) return intPart.toLocaleString('en-US');
+  const ones = ['','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  const tens = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+  function readTriple(n) {
+    if (n === 0) return '';
+    const h = Math.floor(n / 100), rest = n % 100;
+    let s = '';
+    if (h > 0) s += ones[h] + ' hundred';
+    if (rest > 0) {
+      if (s) s += ' ';
+      if (rest < 20) s += ones[rest];
+      else s += tens[Math.floor(rest / 10)] + (rest % 10 ? '-' + ones[rest % 10] : '');
+    }
+    return s;
+  }
+  const unitNames = ['','thousand','million','billion','trillion'];
+  const str = String(intPart);
+  const groups = [];
+  for (let i = str.length; i > 0; i -= 3) {
+    groups.unshift(parseInt(str.slice(Math.max(0, i - 3), i)));
+  }
+  let result = '';
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const unitIdx = groups.length - 1 - i;
+    if (g === 0) continue;
+    let txt = readTriple(g);
+    if (unitNames[unitIdx]) txt += ' ' + unitNames[unitIdx];
+    result += (result ? ' ' : '') + txt;
+  }
+  return (isNeg ? 'minus ' : '') + result;
+}
+
+function getNumberInWords(numStr) {
+  const num = parseFloat(numStr);
+  if (isNaN(num) || numStr === 'Error' || num === 0) return '';
+  const lang = state.language || 'ko';
+  const langInfo = LANGUAGES.find(l => l.code === lang) || LANGUAGES[0];
+  let words = '';
+  switch(lang) {
+    case 'ko': words = numberToKorean(num); break;
+    case 'zh': words = numberToChinese(num); break;
+    case 'ja': words = numberToJapanese(num); break;
+    case 'th': words = numberToThai(num); break;
+    case 'vi': words = numberToVietnamese(num); break;
+    case 'ru': words = numberToRussian(num); break;
+    default: words = numberToEnglish(num); break;
+  }
+  return langInfo.flag + ' ' + words;
+}
+
+function renderGeneralCalculator() {
+  const displayVal = formatCalcDisplay(generalCalcDisplay);
+  const opSymbol = generalCalcOperator ? ({'+':"+",'-':"\u2212",'*':"\u00d7",'/':"\u00f7"}[generalCalcOperator] || '') : '';
+  const prevDisplay = generalCalcPrevValue !== null ? `${parseFloat(generalCalcPrevValue).toLocaleString()} ${opSymbol}` : '';
+  const memIndicator = generalCalcMemory !== 0 ? '<span class="gc-mem-indicator">M</span>' : '';
+  
+  return `
+    <div class="general-calc">
+      <div class="gc-display">
+        <div class="gc-display-top">
+          ${memIndicator}
+          <span class="gc-prev-value">${prevDisplay}</span>
+        </div>
+        <div class="gc-display-main">${displayVal}</div>
+        ${getNumberInWords(generalCalcDisplay) ? `<div class="gc-display-words">${getNumberInWords(generalCalcDisplay)}</div>` : ''}
+      </div>
+      <div class="gc-memory-row">
+        <button class="gc-mem-btn" data-action="gc-mc">MC</button>
+        <button class="gc-mem-btn" data-action="gc-mr">MR</button>
+        <button class="gc-mem-btn" data-action="gc-m-plus">M+</button>
+        <button class="gc-mem-btn" data-action="gc-m-minus">M-</button>
+      </div>
+      <div class="gc-buttons">
+        <button class="gc-btn gc-func" data-action="gc-clear">AC</button>
+        <button class="gc-btn gc-func" data-action="gc-toggle-sign">+/-</button>
+        <button class="gc-btn gc-func" data-action="gc-percent">%</button>
+        <button class="gc-btn gc-op ${generalCalcOperator === '/' ? 'active' : ''}" data-action="gc-op" data-op="/">\u00f7</button>
+        
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="7">7</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="8">8</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="9">9</button>
+        <button class="gc-btn gc-op ${generalCalcOperator === '*' ? 'active' : ''}" data-action="gc-op" data-op="*">\u00d7</button>
+        
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="4">4</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="5">5</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="6">6</button>
+        <button class="gc-btn gc-op ${generalCalcOperator === '-' ? 'active' : ''}" data-action="gc-op" data-op="-">\u2212</button>
+        
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="1">1</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="2">2</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="3">3</button>
+        <button class="gc-btn gc-op ${generalCalcOperator === '+' ? 'active' : ''}" data-action="gc-op" data-op="+">+</button>
+        
+        <button class="gc-btn gc-num gc-zero" data-action="gc-digit" data-digit="0">0</button>
+        <button class="gc-btn gc-num" data-action="gc-dot">.</button>
+        <button class="gc-btn gc-backspace" data-action="gc-backspace"><i class="ri-delete-back-2-line"></i></button>
+        <button class="gc-btn gc-equals" data-action="gc-equals">=</button>
+      </div>
+    </div>
+  `;
+}
+
+// ═════════════════════════════════════════════════════════════
 // AI CHAT SCREEN (Gemini)
 // ═════════════════════════════════════════════════════════════
 
@@ -3847,11 +4595,19 @@ function saveAiSettings() {
 }
 
 async function sendGeminiMessage(userText) {
-  if (!userText.trim()) return;
+  if (!userText.trim() && aiPendingAttachments.length === 0) return;
   
-  // Add user message
-  aiMessages.push({ role: 'user', text: userText, timestamp: Date.now() });
-  aiChatHistory.push({ role: 'user', parts: [{ text: userText }] });
+  // Capture current attachments
+  const currentAttachments = [...aiPendingAttachments];
+  aiPendingAttachments = [];
+  
+  // Add user message with attachments
+  const userMsg = { role: 'user', text: userText || (currentAttachments.length > 0 ? '이 파일을 분석해주세요' : ''), timestamp: Date.now() };
+  if (currentAttachments.length > 0) {
+    userMsg.attachments = currentAttachments;
+  }
+  aiMessages.push(userMsg);
+  aiChatHistory.push({ role: 'user', parts: [{ text: userMsg.text }], attachments: currentAttachments });
   aiInputText = '';
   aiIsLoading = true;
   render();
@@ -3859,13 +4615,19 @@ async function sendGeminiMessage(userText) {
   
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout for server proxy
+    const timeout = setTimeout(() => controller.abort(), 90000); // 90s timeout for image uploads
     
     // Build conversation history for server proxy
-    const chatMsgs = aiChatHistory.map(h => ({
-      role: h.role === 'model' ? 'model' : h.role,
-      text: h.parts?.[0]?.text || ''
-    }));
+    const chatMsgs = aiChatHistory.map(h => {
+      const msg = {
+        role: h.role === 'model' ? 'model' : h.role,
+        text: h.parts?.[0]?.text || ''
+      };
+      if (h.attachments && h.attachments.length > 0) {
+        msg.attachments = h.attachments.map(a => ({ type: a.type, data: a.data, name: a.name }));
+      }
+      return msg;
+    });
     
     const resp = await fetch(AI_PROXY_URL, {
       method: 'POST',
@@ -4169,17 +4931,28 @@ function renderAIChat() {
         </button>
       </div>
     </div>
-  ` : aiMessages.map(msg => `
+  ` : aiMessages.map(msg => {
+    let attachHtml = '';
+    if (msg.attachments && msg.attachments.length > 0) {
+      attachHtml = '<div class="ai-msg-attachments">' + msg.attachments.map(att => {
+        if (att.type === 'image') return `<img src="${att.preview || att.data}" class="ai-msg-img" onclick="window.open('${att.data}','_blank')" />`;
+        if (att.type === 'video') return `<div class="ai-msg-file-badge"><i class="ri-video-line"></i> ${escapeHtml(att.name)}</div>`;
+        return `<div class="ai-msg-file-badge"><i class="ri-file-line"></i> ${escapeHtml(att.name)}</div>`;
+      }).join('') + '</div>';
+    }
+    return `
     <div class="ai-message ${msg.role === 'user' ? 'ai-msg-user' : 'ai-msg-model'} ${msg.isError ? 'ai-msg-error' : ''}">
       <div class="ai-msg-avatar">
         ${msg.role === 'user' ? '<i class="ri-user-3-fill"></i>' : '<i class="ri-sparkling-2-fill"></i>'}
       </div>
       <div class="ai-msg-bubble">
+        ${attachHtml}
         <div class="ai-msg-text">${msg.role === 'user' ? escapeHtml(msg.text) : formatAiMessage(msg.text)}</div>
         <div class="ai-msg-time">${new Date(msg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
   
   const loadingHtml = aiIsLoading ? `
     <div class="ai-message ai-msg-model">
@@ -4216,12 +4989,29 @@ function renderAIChat() {
         ${loadingHtml}
       </div>
       <div class="ai-chat-input-area">
+        ${aiPendingAttachments.length > 0 ? `
+        <div class="ai-attachments-preview">
+          ${aiPendingAttachments.map((att, i) => `
+            <div class="ai-attach-item">
+              ${att.type === 'image' ? `<img src="${att.preview || att.data}" class="ai-attach-thumb" />` : 
+                att.type === 'video' ? `<div class="ai-attach-thumb ai-attach-video"><i class="ri-video-line"></i></div>` :
+                `<div class="ai-attach-thumb ai-attach-file"><i class="ri-file-line"></i></div>`}
+              <span class="ai-attach-name">${escapeHtml(att.name || 'file')}</span>
+              <button class="ai-attach-remove" data-action="ai-remove-attach" data-idx="${i}"><i class="ri-close-line"></i></button>
+            </div>
+          `).join('')}
+        </div>
+        ` : ''}
         <div class="ai-input-wrapper">
+          <button class="ai-attach-btn" data-action="ai-attach" title="Attach">
+            <i class="ri-add-line"></i>
+          </button>
           <textarea id="ai-input" class="ai-text-input" placeholder="${escapeHtml(t('ai_placeholder') || 'Ask iBag AI...')}" rows="1">${escapeHtml(aiInputText)}</textarea>
           <button class="ai-send-btn ${aiIsLoading ? 'disabled' : ''}" data-action="ai-send" ${aiIsLoading ? 'disabled' : ''}>
             <i class="ri-send-plane-2-fill"></i>
           </button>
         </div>
+        <input type="file" id="ai-file-input" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.csv,.xlsx" multiple style="display:none" />
       </div>
     </div>
   `;
@@ -4803,13 +5593,101 @@ function renderOrgChartView() {
         <strong style="color:#10b981">$${totalAmount.toLocaleString()}</strong>
       </div>
     </div>
+    <div class="org-view-tabs" style="display:flex;gap:4px;padding:8px 16px;overflow-x:auto">
+      <button class="org-view-tab ${orgViewMode==='tree'?'active':''}" data-action="org-view-tree" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--bg-card-border);background:${orgViewMode==='tree'?'var(--accent-primary)':'transparent'};color:${orgViewMode==='tree'?'#fff':'var(--text-secondary)'};cursor:pointer;white-space:nowrap">
+        <i class="ri-organization-chart"></i> 조직도
+      </button>
+      <button class="org-view-tab ${orgViewMode==='list-name'?'active':''}" data-action="org-view-list-name" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--bg-card-border);background:${orgViewMode==='list-name'?'var(--accent-primary)':'transparent'};color:${orgViewMode==='list-name'?'#fff':'var(--text-secondary)'};cursor:pointer;white-space:nowrap">
+        <i class="ri-sort-alphabet-asc"></i> 이름순
+      </button>
+      <button class="org-view-tab ${orgViewMode==='list-amount'?'active':''}" data-action="org-view-list-amount" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--bg-card-border);background:${orgViewMode==='list-amount'?'var(--accent-primary)':'transparent'};color:${orgViewMode==='list-amount'?'#fff':'var(--text-secondary)'};cursor:pointer;white-space:nowrap">
+        <i class="ri-money-dollar-circle-line"></i> 투자금순
+      </button>
+    </div>
+    ${orgViewMode === 'tree' ? `
     <div class="org-viewport" id="org-viewport">
       <div class="org-tree-pannable" id="org-tree-pannable" style="transform:translate(${orgPanX}px,${orgPanY}px) scale(${orgZoom})">
         ${treeHtml}
       </div>
     </div>
+    ` : renderOrgListView(nodes, orgViewMode)}
     <button class="fab" data-action="add-org-root"><i class="ri-add-line"></i></button>
   `;
+}
+
+// Org list view - sorted by name or amount
+function renderOrgListView(nodes, mode) {
+  if (nodes.length === 0) return '<div class="empty-state" style="padding:40px 16px;text-align:center;color:var(--text-muted)"><i class="ri-user-line" style="font-size:40px;margin-bottom:12px;display:block"></i><p>멤버가 없습니다</p></div>';
+
+  // Find parent name helper
+  function getParentName(node) {
+    if (!node.parentId) return '-';
+    const parent = nodes.find(n => n.id === node.parentId);
+    return parent ? (parent.name || '?') : '-';
+  }
+
+  // Sort nodes
+  let sorted = [...nodes];
+  if (mode === 'list-name') {
+    sorted.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+  } else if (mode === 'list-amount') {
+    sorted.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+  }
+
+  const totalAmount = nodes.reduce((sum, n) => sum + (parseFloat(n.amount) || 0), 0);
+
+  const listHtml = sorted.map((node, idx) => {
+    const amount = parseFloat(node.amount) || 0;
+    const percent = totalAmount > 0 ? ((amount / totalAmount) * 100).toFixed(1) : '0.0';
+    const depth = getNodeDepth(node, nodes);
+    const depthLabel = depth === 0 ? 'ROOT' : `L${depth}`;
+    const children = nodes.filter(n => n.parentId === node.id);
+
+    return `
+      <div class="org-list-item" data-action="edit-org-node" data-node-id="${node.id}" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--bg-card-border);cursor:pointer">
+        <div style="width:28px;text-align:center;font-size:12px;font-weight:700;color:var(--text-muted)">${idx + 1}</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#3b82f620,#06b6d420);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="ri-user-3-fill" style="color:var(--accent-primary);font-size:18px"></i>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;color:var(--text-primary)">${escapeHtml(node.name || '?')}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+            <span style="background:var(--bg-card);padding:1px 6px;border-radius:4px;margin-right:4px">${depthLabel}</span>
+            상위: ${escapeHtml(getParentName(node))}
+            ${children.length > 0 ? ` · 하위 ${children.length}명` : ''}
+          </div>
+          ${node.phone ? `<div style="font-size:11px;color:var(--text-muted);margin-top:1px"><i class="ri-phone-line" style="font-size:10px"></i> ${escapeHtml(node.phone)}</div>` : ''}
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:14px;font-weight:700;color:#10b981">$${amount.toLocaleString()}</div>
+          ${mode === 'list-amount' && totalAmount > 0 ? `<div style="font-size:11px;color:var(--text-muted)">${percent}%</div>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div style="flex:1;overflow-y:auto;background:var(--bg-card);border-radius:12px;margin:0 12px 12px">
+      <div style="padding:10px 16px;border-bottom:1px solid var(--bg-card-border);display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">
+          ${mode === 'list-name' ? '<i class="ri-sort-alphabet-asc"></i> 이름순 정렬' : '<i class="ri-money-dollar-circle-line"></i> 투자금 높은순'}
+        </span>
+        <span style="font-size:12px;color:var(--text-muted)">${sorted.length}명</span>
+      </div>
+      ${listHtml}
+    </div>
+  `;
+}
+
+function getNodeDepth(node, nodes) {
+  let depth = 0;
+  let current = node;
+  while (current.parentId) {
+    current = nodes.find(n => n.id === current.parentId);
+    if (!current) break;
+    depth++;
+  }
+  return depth;
 }
 
 // Draw SVG connection lines between org chart nodes
@@ -5739,6 +6617,193 @@ function renderCardDetail() {
 
 
 // ═══════════════════════════════════════════════════════════
+// KPI / WBS (Work Breakdown Structure)
+// ═══════════════════════════════════════════════════════════
+
+function renderKpiScreen() {
+  switch (kpiScreen) {
+    case 'project': return renderKpiProject();
+    case 'task': return renderKpiTask();
+    default: return renderKpiList();
+  }
+}
+
+function renderKpiList() {
+  const projectsHtml = kpiProjects.length === 0 ? `
+    <div class="empty-state" style="padding:60px 20px;text-align:center">
+      <i class="ri-bar-chart-box-line" style="font-size:48px;color:var(--text-muted);margin-bottom:16px;display:block"></i>
+      <h3 style="color:var(--text-primary);margin-bottom:8px">프로젝트를 추가하세요</h3>
+      <p style="color:var(--text-muted);font-size:13px">KPI 프로젝트를 만들고 WBS로 \n업무를 관리하세요</p>
+    </div>
+  ` : kpiProjects.map(proj => {
+    const totalTasks = countAllTasks(proj);
+    const doneTasks = countDoneTasks(proj);
+    const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+    const daysLeft = proj.deadline ? Math.ceil((new Date(proj.deadline) - new Date()) / (1000*60*60*24)) : null;
+    return `
+      <div class="kpi-project-card" data-action="kpi-open-project" data-kpi-id="${proj.id}" style="background:var(--bg-card);border-radius:12px;padding:16px;margin-bottom:12px;cursor:pointer;border:1px solid var(--bg-card-border)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+          <div>
+            <div style="font-size:16px;font-weight:700;color:var(--text-primary)">${escapeHtml(proj.name)}</div>
+            ${proj.goal ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px">${escapeHtml(proj.goal)}</div>` : ''}
+          </div>
+          <button data-action="kpi-delete-project" data-kpi-id="${proj.id}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:4px" onclick="event.stopPropagation()"><i class="ri-delete-bin-line"></i></button>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:10px">
+          ${proj.deadline ? `<div style="font-size:11px;color:${daysLeft <= 0 ? '#ef4444' : daysLeft <= 7 ? '#f59e0b' : 'var(--text-muted)'}">
+            <i class="ri-calendar-line"></i> ${proj.deadline} ${daysLeft > 0 ? `(D-${daysLeft})` : daysLeft === 0 ? '(D-Day!)' : `(D+${Math.abs(daysLeft)})`}
+          </div>` : ''}
+          <div style="font-size:11px;color:var(--text-muted)"><i class="ri-task-line"></i> ${doneTasks}/${totalTasks}</div>
+        </div>
+        <div style="background:var(--bg-main);border-radius:6px;height:6px;overflow:hidden">
+          <div style="height:100%;width:${progress}%;background:linear-gradient(90deg,#10b981,#06b6d4);border-radius:6px;transition:width 0.3s"></div>
+        </div>
+        <div style="text-align:right;font-size:11px;color:var(--text-muted);margin-top:4px">${progress}%</div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="sub-header">
+      <button data-action="go-back"><i class="ri-arrow-left-line"></i></button>
+      <span>KPI</span>
+    </div>
+    <div style="padding:12px 16px;flex:1;overflow-y:auto">
+      ${projectsHtml}
+    </div>
+    <button class="fab" data-action="kpi-add-project"><i class="ri-add-line"></i></button>
+  `;
+}
+
+function renderKpiProject() {
+  const proj = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+  if (!proj) { kpiScreen = 'list'; return renderKpiList(); }
+
+  const totalTasks = countAllTasks(proj);
+  const doneTasks = countDoneTasks(proj);
+  const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+  const daysLeft = proj.deadline ? Math.ceil((new Date(proj.deadline) - new Date()) / (1000*60*60*24)) : null;
+
+  // Countdown
+  let countdownHtml = '';
+  if (proj.deadline) {
+    const now = new Date();
+    const dl = new Date(proj.deadline + 'T23:59:59');
+    const diff = dl - now;
+    if (diff > 0) {
+      const days = Math.floor(diff / (1000*60*60*24));
+      const hours = Math.floor((diff % (1000*60*60*24)) / (1000*60*60));
+      const mins = Math.floor((diff % (1000*60*60)) / (1000*60));
+      countdownHtml = `
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
+          <div style="background:var(--bg-main);border-radius:8px;padding:8px 14px;text-align:center;min-width:50px">
+            <div style="font-size:20px;font-weight:800;color:#10b981">${days}</div>
+            <div style="font-size:10px;color:var(--text-muted)">일</div>
+          </div>
+          <div style="background:var(--bg-main);border-radius:8px;padding:8px 14px;text-align:center;min-width:50px">
+            <div style="font-size:20px;font-weight:800;color:#10b981">${hours}</div>
+            <div style="font-size:10px;color:var(--text-muted)">시간</div>
+          </div>
+          <div style="background:var(--bg-main);border-radius:8px;padding:8px 14px;text-align:center;min-width:50px">
+            <div style="font-size:20px;font-weight:800;color:#10b981">${mins}</div>
+            <div style="font-size:10px;color:var(--text-muted)">분</div>
+          </div>
+        </div>
+      `;
+    } else {
+      countdownHtml = `<div style="text-align:center;margin-top:8px;color:#ef4444;font-weight:700">마감일 경과!</div>`;
+    }
+  }
+
+  const categories = proj.categories || [];
+  const categoriesHtml = categories.map((cat, catIdx) => {
+    const subcats = cat.subcategories || [];
+    const catTasks = subcats.reduce((sum, sc) => sum + (sc.tasks || []).length, 0);
+    const catDone = subcats.reduce((sum, sc) => sum + (sc.tasks || []).filter(t => t.done).length, 0);
+
+    const subcatsHtml = subcats.map((sc, scIdx) => {
+      const tasks = sc.tasks || [];
+      const scDone = tasks.filter(t => t.done).length;
+      const tasksHtml = tasks.map((task, tIdx) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--bg-card-border)">
+          <button data-action="kpi-toggle-task" data-cat="${catIdx}" data-subcat="${scIdx}" data-task="${tIdx}" style="background:none;border:2px solid ${task.done ? '#10b981' : 'var(--text-muted)'};width:20px;height:20px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;${task.done ? 'background:#10b981' : ''}">
+            ${task.done ? '<i class="ri-check-line" style="color:#fff;font-size:12px"></i>' : ''}
+          </button>
+          <span style="flex:1;font-size:13px;color:${task.done ? 'var(--text-muted)' : 'var(--text-primary)'};${task.done ? 'text-decoration:line-through' : ''}">${escapeHtml(task.text)}</span>
+          <button data-action="kpi-delete-task" data-cat="${catIdx}" data-subcat="${scIdx}" data-task="${tIdx}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px;font-size:14px"><i class="ri-close-line"></i></button>
+        </div>
+      `).join('');
+
+      return `
+        <div style="margin-left:12px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+            <i class="ri-folder-line" style="color:var(--accent-primary);font-size:14px"></i>
+            <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1;cursor:pointer" data-action="kpi-rename-subcat" data-cat="${catIdx}" data-subcat="${scIdx}">${escapeHtml(sc.name)}</span>
+            <span style="font-size:11px;color:var(--text-muted)">${scDone}/${tasks.length}</span>
+            <button data-action="kpi-delete-subcat" data-cat="${catIdx}" data-subcat="${scIdx}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px"><i class="ri-delete-bin-line" style="font-size:12px"></i></button>
+          </div>
+          <div style="background:var(--bg-main);border-radius:8px;overflow:hidden">
+            ${tasksHtml}
+            <div data-action="kpi-add-task" data-cat="${catIdx}" data-subcat="${scIdx}" style="padding:8px 12px;color:var(--text-muted);font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px">
+              <i class="ri-add-line"></i> 태스크 추가
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div style="background:var(--bg-card);border-radius:12px;padding:14px;margin-bottom:12px;border:1px solid var(--bg-card-border)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <i class="ri-folder-3-fill" style="color:#f59e0b;font-size:18px"></i>
+          <span style="font-size:15px;font-weight:700;color:var(--text-primary);flex:1;cursor:pointer" data-action="kpi-rename-cat" data-cat="${catIdx}">${escapeHtml(cat.name)}</span>
+          <span style="font-size:11px;color:var(--text-muted)">${catDone}/${catTasks}</span>
+          <button data-action="kpi-add-subcat" data-cat="${catIdx}" style="background:none;border:none;color:var(--accent-primary);cursor:pointer;padding:2px"><i class="ri-add-circle-line" style="font-size:16px"></i></button>
+          <button data-action="kpi-delete-cat" data-cat="${catIdx}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px"><i class="ri-delete-bin-line" style="font-size:14px"></i></button>
+        </div>
+        ${subcatsHtml}
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="sub-header">
+      <button data-action="kpi-back-to-list"><i class="ri-arrow-left-line"></i></button>
+      <span>${escapeHtml(proj.name)}</span>
+      <button style="margin-left:auto;background:none;border:none;color:var(--text-muted);cursor:pointer" data-action="kpi-edit-project" data-kpi-id="${proj.id}"><i class="ri-settings-3-line"></i></button>
+    </div>
+    <div style="padding:12px 16px;flex:1;overflow-y:auto">
+      <div style="background:var(--bg-card);border-radius:12px;padding:16px;margin-bottom:12px;border:1px solid var(--bg-card-border)">
+        ${proj.goal ? `<div style="text-align:center;font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px"><i class="ri-focus-3-line"></i> ${escapeHtml(proj.goal)}</div>` : ''}
+        ${proj.deadline ? `<div style="text-align:center;font-size:12px;color:var(--text-muted)">완성일: ${proj.deadline}</div>` : ''}
+        ${countdownHtml}
+        <div style="margin-top:12px;background:var(--bg-main);border-radius:6px;height:8px;overflow:hidden">
+          <div style="height:100%;width:${progress}%;background:linear-gradient(90deg,#10b981,#06b6d4);border-radius:6px;transition:width 0.3s"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px">
+          <span style="font-size:11px;color:var(--text-muted)">${doneTasks}/${totalTasks} 완료</span>
+          <span style="font-size:11px;font-weight:700;color:#10b981">${progress}%</span>
+        </div>
+      </div>
+      ${categoriesHtml}
+      <div data-action="kpi-add-cat" style="background:var(--bg-card);border-radius:12px;padding:14px;text-align:center;cursor:pointer;border:1px dashed var(--bg-card-border);color:var(--text-muted);font-size:13px">
+        <i class="ri-add-line"></i> 대메뉴 추가
+      </div>
+    </div>
+  `;
+}
+
+function countAllTasks(proj) {
+  return (proj.categories || []).reduce((sum, cat) =>
+    sum + (cat.subcategories || []).reduce((s, sc) => s + (sc.tasks || []).length, 0), 0);
+}
+
+function countDoneTasks(proj) {
+  return (proj.categories || []).reduce((sum, cat) =>
+    sum + (cat.subcategories || []).reduce((s, sc) => s + (sc.tasks || []).filter(t => t.done).length, 0), 0);
+}
+
+// ═══════════════════════════════════════════════════════════
 // WEB3APP DOWNLOAD SERVICE
 // ═══════════════════════════════════════════════════════════
 
@@ -6204,7 +7269,7 @@ function renderModal() {
       <div class="form-group"><label class="form-label">${escapeHtml(t('memo_content'))}</label><textarea class="form-textarea" id="m-content" rows="4">${escapeHtml(m.content || '')}</textarea></div>
       <div class="form-group"><label class="form-label">${escapeHtml(t('memo_link'))}</label><input class="form-input" id="m-link" value="${escapeHtml(m.link || '')}" placeholder="https://"></div>
       <div class="form-group"><label class="form-label">${escapeHtml(t('memo_tags'))}</label><input class="form-input" id="m-tags" value="${escapeHtml((m.tags || []).join(', '))}" placeholder="${escapeHtml(t('memo_tags_hint'))}"></div>
-      <div class="form-group" id="memo-paste-zone">
+      <div class="form-group" id="memo-paste-zone" tabindex="0" style="outline:none">
         <label class="form-label"><i class="ri-image-line"></i> ${escapeHtml(t('memo_image'))}</label>
         ${showImage ? `
           <div class="memo-image-preview"><img src="${imgSrc}" alt=""><button class="remove-img-btn" data-action="remove-memo-image"><i class="ri-close-line"></i></button></div>
@@ -6988,8 +8053,38 @@ function bindEvents() {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         const text = aiInput.value.trim();
-        if (text && !aiIsLoading) sendGeminiMessage(text);
+        if ((text || aiPendingAttachments.length > 0) && !aiIsLoading) sendGeminiMessage(text);
       }
+    });
+  }
+  
+  // AI file input handler
+  const aiFileInput = document.getElementById('ai-file-input');
+  if (aiFileInput) {
+    aiFileInput.addEventListener('change', (e) => {
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
+      
+      Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const dataUrl = ev.target.result;
+          if (file.type.startsWith('image/')) {
+            aiPendingAttachments.push({ type: 'image', data: dataUrl, name: file.name, preview: dataUrl });
+          } else if (file.type.startsWith('video/')) {
+            aiPendingAttachments.push({ type: 'video', data: dataUrl, name: file.name, preview: '' });
+          } else {
+            aiPendingAttachments.push({ type: 'file', data: dataUrl, name: file.name, preview: '' });
+          }
+          render();
+        };
+        if (file.size > 10 * 1024 * 1024) {
+          alert(state.language === 'ko' ? '파일 크기는 10MB 이하만 가능합니다.' : 'File size must be under 10MB.');
+          return;
+        }
+        reader.readAsDataURL(file);
+      });
+      e.target.value = ''; // reset
     });
   }
 
@@ -7300,6 +8395,17 @@ function bindEvents() {
     pasteZone.addEventListener('dragover', (e) => { e.preventDefault(); pasteZone.classList.add('drag-over'); });
     pasteZone.addEventListener('dragleave', () => pasteZone.classList.remove('drag-over'));
     pasteZone.addEventListener('drop', handleMemoDrop);
+    // Global paste: when memo modal is open, Ctrl+V anywhere pastes image
+    document.addEventListener('paste', function _globalMemoPaste(e) {
+      const zone = document.getElementById('memo-paste-zone');
+      if (!zone) { document.removeEventListener('paste', _globalMemoPaste); return; }
+      // Only handle if not already handled by the zone itself
+      if (e.target && e.target.closest && e.target.closest('#memo-paste-zone')) return;
+      // Check if we're in a text input - don't intercept normal text paste
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      handleMemoPaste(e);
+    });
   }
 }
 
@@ -7330,6 +8436,7 @@ function handleAction(action, el) {
     case 'goto-translate': state.currentTab = 'translate'; render(); break;
     case 'goto-ibag': state.currentTab = 'ibag'; bmTab = 'bookmarks'; render(); break;
     case 'goto-card-tab': state.currentTab = 'card'; cardScreen = 'main'; render(); break;
+    case 'goto-kpi': state.currentTab = 'kpi'; kpiScreen = 'list'; render(); break;
     case 'goto-web3app': showPlusMenu = false; if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Browser) { window.Capacitor.Plugins.Browser.open({ url: 'https://web3dapp.io' }); } else if (IS_ELECTRON && window.electronAPI) { window.electronAPI.openExternal('https://web3dapp.io'); } else { window.open('https://web3dapp.io', '_blank'); } break;
     case 'goto-translate-plus': showPlusMenu = false; state.currentTab = 'translate'; render(); break;
     case 'goto-orgchart-home': state.currentTab = 'orgchart'; render(); break;
@@ -7361,6 +8468,21 @@ function handleAction(action, el) {
     // Calculator tabs
     case 'calc-tab-exchange': calcTabMode = 'exchange'; render(); break;
     case 'calc-tab-fee': calcTabMode = 'fee'; render(); break;
+    case 'calc-tab-general': calcTabMode = 'general'; render(); break;
+
+    // General Calculator actions
+    case 'gc-digit': generalCalcInputDigit(el.dataset.digit); render(); break;
+    case 'gc-dot': generalCalcInputDot(); render(); break;
+    case 'gc-op': generalCalcPerformOperation(el.dataset.op); render(); break;
+    case 'gc-equals': generalCalcEquals(); render(); break;
+    case 'gc-clear': generalCalcReset(); render(); break;
+    case 'gc-toggle-sign': generalCalcToggleSign(); render(); break;
+    case 'gc-percent': generalCalcPercent(); render(); break;
+    case 'gc-backspace': generalCalcBackspace(); render(); break;
+    case 'gc-mc': generalCalcMemoryClear(); render(); break;
+    case 'gc-mr': generalCalcMemoryRecall(); render(); break;
+    case 'gc-m-plus': generalCalcMemoryAdd(); render(); break;
+    case 'gc-m-minus': generalCalcMemorySub(); render(); break;
 
     // Fee calculator modes
     case 'fee-mode-forward': feeCalcMode = 'forward'; feeResult = null; render(); break;
@@ -7400,7 +8522,7 @@ function handleAction(action, el) {
     case 'ai-send': {
       const aiInput = document.getElementById('ai-input');
       const text = aiInput ? aiInput.value.trim() : aiInputText.trim();
-      if (text) sendGeminiMessage(text);
+      if (text || aiPendingAttachments.length > 0) sendGeminiMessage(text);
       break;
     }
     case 'ai-suggest': {
@@ -7454,9 +8576,23 @@ function handleAction(action, el) {
       }
       break;
     }
+    case 'ai-attach': {
+      const fileInput = document.getElementById('ai-file-input');
+      if (fileInput) fileInput.click();
+      break;
+    }
+    case 'ai-remove-attach': {
+      const removeIdx = parseInt(el.dataset.idx);
+      if (!isNaN(removeIdx) && removeIdx >= 0) {
+        aiPendingAttachments.splice(removeIdx, 1);
+        render();
+      }
+      break;
+    }
     case 'ai-clear-chat':
       aiMessages = [];
       aiChatHistory = [];
+      aiPendingAttachments = [];
       saveAiSettings();
       render();
       break;
@@ -7772,6 +8908,166 @@ function handleAction(action, el) {
     }
 
     case 'goto-orgchart': showPlusMenu = false; state.currentTab = 'orgchart'; render(); break;
+
+    // KPI / WBS actions
+    case 'kpi-add-project': {
+      const name = prompt('프로젝트 이름:');
+      if (!name || !name.trim()) break;
+      const goal = prompt('목표 (선택):') || '';
+      const deadline = prompt('마감일 (YYYY-MM-DD, 선택):') || '';
+      const newProj = {
+        id: 'kpi_' + Date.now(),
+        name: name.trim(),
+        goal: goal.trim(),
+        deadline: deadline.trim(),
+        categories: [],
+        createdAt: new Date().toISOString()
+      };
+      kpiProjects.push(newProj);
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-delete-project': {
+      const projId = el.dataset.kpiId;
+      if (confirm('이 프로젝트를 삭제하시겠습니까?')) {
+        kpiProjects = kpiProjects.filter(p => p.id !== projId);
+        saveKpiProjects();
+        render();
+      }
+      break;
+    }
+    case 'kpi-open-project': {
+      kpiSelectedProjectId = el.dataset.kpiId || el.closest('[data-kpi-id]')?.dataset.kpiId;
+      kpiScreen = 'project';
+      render();
+      break;
+    }
+    case 'kpi-back-to-list': {
+      kpiScreen = 'list';
+      render();
+      break;
+    }
+    case 'kpi-edit-project': {
+      const epId = el.dataset.kpiId;
+      const ep = kpiProjects.find(p => p.id === epId);
+      if (!ep) break;
+      const newName = prompt('프로젝트 이름:', ep.name);
+      if (newName && newName.trim()) ep.name = newName.trim();
+      const newGoal = prompt('목표:', ep.goal);
+      if (newGoal !== null) ep.goal = newGoal.trim();
+      const newDl = prompt('마감일 (YYYY-MM-DD):', ep.deadline);
+      if (newDl !== null) ep.deadline = newDl.trim();
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-add-cat': {
+      const proj = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj) break;
+      const catName = prompt('대메뉴 이름:');
+      if (!catName || !catName.trim()) break;
+      if (!proj.categories) proj.categories = [];
+      proj.categories.push({ name: catName.trim(), subcategories: [] });
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-rename-cat': {
+      const catIdx = parseInt(el.dataset.cat);
+      const proj = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj || !proj.categories[catIdx]) break;
+      const newCatName = prompt('대메뉴 이름 변경:', proj.categories[catIdx].name);
+      if (newCatName && newCatName.trim()) {
+        proj.categories[catIdx].name = newCatName.trim();
+        saveKpiProjects();
+        render();
+      }
+      break;
+    }
+    case 'kpi-delete-cat': {
+      const catIdx2 = parseInt(el.dataset.cat);
+      const proj2 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj2 || !proj2.categories[catIdx2]) break;
+      if (confirm(`"${proj2.categories[catIdx2].name}" 대메뉴를 삭제하시겠습니까?`)) {
+        proj2.categories.splice(catIdx2, 1);
+        saveKpiProjects();
+        render();
+      }
+      break;
+    }
+    case 'kpi-add-subcat': {
+      const catIdx3 = parseInt(el.dataset.cat);
+      const proj3 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj3 || !proj3.categories[catIdx3]) break;
+      const scName = prompt('소메뉴 이름:');
+      if (!scName || !scName.trim()) break;
+      if (!proj3.categories[catIdx3].subcategories) proj3.categories[catIdx3].subcategories = [];
+      proj3.categories[catIdx3].subcategories.push({ name: scName.trim(), tasks: [] });
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-rename-subcat': {
+      const catIdx4 = parseInt(el.dataset.cat);
+      const scIdx = parseInt(el.dataset.subcat);
+      const proj4 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj4 || !proj4.categories[catIdx4]?.subcategories[scIdx]) break;
+      const newScName = prompt('소메뉴 이름 변경:', proj4.categories[catIdx4].subcategories[scIdx].name);
+      if (newScName && newScName.trim()) {
+        proj4.categories[catIdx4].subcategories[scIdx].name = newScName.trim();
+        saveKpiProjects();
+        render();
+      }
+      break;
+    }
+    case 'kpi-delete-subcat': {
+      const catIdx5 = parseInt(el.dataset.cat);
+      const scIdx2 = parseInt(el.dataset.subcat);
+      const proj5 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj5 || !proj5.categories[catIdx5]?.subcategories[scIdx2]) break;
+      if (confirm(`"${proj5.categories[catIdx5].subcategories[scIdx2].name}" 소메뉴를 삭제하시겠습니까?`)) {
+        proj5.categories[catIdx5].subcategories.splice(scIdx2, 1);
+        saveKpiProjects();
+        render();
+      }
+      break;
+    }
+    case 'kpi-add-task': {
+      const catIdx6 = parseInt(el.dataset.cat);
+      const scIdx3 = parseInt(el.dataset.subcat);
+      const proj6 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj6 || !proj6.categories[catIdx6]?.subcategories[scIdx3]) break;
+      const taskText = prompt('태스크 내용:');
+      if (!taskText || !taskText.trim()) break;
+      if (!proj6.categories[catIdx6].subcategories[scIdx3].tasks) proj6.categories[catIdx6].subcategories[scIdx3].tasks = [];
+      proj6.categories[catIdx6].subcategories[scIdx3].tasks.push({ text: taskText.trim(), done: false, createdAt: new Date().toISOString() });
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-toggle-task': {
+      const catIdx7 = parseInt(el.dataset.cat);
+      const scIdx4 = parseInt(el.dataset.subcat);
+      const tIdx = parseInt(el.dataset.task);
+      const proj7 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj7 || !proj7.categories[catIdx7]?.subcategories[scIdx4]?.tasks[tIdx]) break;
+      proj7.categories[catIdx7].subcategories[scIdx4].tasks[tIdx].done = !proj7.categories[catIdx7].subcategories[scIdx4].tasks[tIdx].done;
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-delete-task': {
+      const catIdx8 = parseInt(el.dataset.cat);
+      const scIdx5 = parseInt(el.dataset.subcat);
+      const tIdx2 = parseInt(el.dataset.task);
+      const proj8 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj8 || !proj8.categories[catIdx8]?.subcategories[scIdx5]?.tasks[tIdx2]) break;
+      proj8.categories[catIdx8].subcategories[scIdx5].tasks.splice(tIdx2, 1);
+      saveKpiProjects();
+      render();
+      break;
+    }
 
     // Clipboard actions
     case 'clip-add':
@@ -8631,6 +9927,33 @@ function handleAction(action, el) {
         saveState(); render();
       }
       break;
+
+    case 'toggle-project-fav': {
+      const projId = el.dataset.projectId;
+      if (projId) {
+        if (projectFavorites.includes(projId)) {
+          projectFavorites = projectFavorites.filter(id => id !== projId);
+        } else {
+          projectFavorites.push(projId);
+        }
+        saveProjectFavorites();
+        render();
+      }
+      break;
+    }
+    case 'quick-add-token': {
+      const qatId = el.dataset.tokenId;
+      if (qatId && !state.savedTokens.includes(qatId)) {
+        state.savedTokens.push(qatId);
+        saveState(); render();
+      }
+      break;
+    }
+
+    // Org chart view mode
+    case 'org-view-tree': orgViewMode = 'tree'; render(); break;
+    case 'org-view-list-name': orgViewMode = 'list-name'; render(); break;
+    case 'org-view-list-amount': orgViewMode = 'list-amount'; render(); break;
 
     // Org chart zoom/pan
     case 'org-zoom-in': {
@@ -9615,6 +10938,7 @@ async function init() {
   loadCustomMainnets();
   loadCustomTokens();
   loadCards();
+  loadKpiProjects();
   loadAiSettings();
 
   // Fetch interstitial ad and popup notice on app open
@@ -9661,7 +10985,7 @@ document.addEventListener('click', (e) => {
     const action = actionEl.dataset.action;
     // Only handle actions for dynamically created elements
     // (static elements already have their own listeners from bindEvents)
-    if (['add-contract-token', 'ai-open-external', 'app-check-update', 'app-download-update', 'vault-reset', 'vault-lock', 'vault-settings', 'vault-change-view', 'vault-change-panic', 'vault-autolock-set'].includes(action)) {
+    if (['add-contract-token', 'ai-open-external', 'ai-attach', 'ai-remove-attach', 'ai-send', 'ai-clear-chat', 'app-check-update', 'app-download-update', 'vault-reset', 'vault-lock', 'vault-settings', 'vault-change-view', 'vault-change-panic', 'vault-autolock-set'].includes(action)) {
       e.stopPropagation();
       handleAction(action, actionEl);
     }
