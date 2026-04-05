@@ -317,7 +317,9 @@ let kpiProjects = [];
 let kpiSelectedProjectId = null;
 let kpiSelectedCategoryId = null;
 let kpiSelectedSubcategoryId = null;
-let kpiModalCallback = null; // callback for KPI custom prompt modal
+let kpiModalCallback = null;
+let kpiShareProjectId = '';
+let kpiQrData = ''; // callback for KPI custom prompt modal
 let kpiModalFields = []; // [{label, id, value, placeholder, type}]
 let kpiModalTitle = '';
 let kpiConfirmCallback = null; // callback for KPI custom confirm modal
@@ -343,6 +345,79 @@ function showKpiConfirm(message, callback) {
   showModal = true;
   modalType = 'kpi-confirm';
   render();
+}
+
+// KPI Share helpers
+function importKpiFromText(text) {
+  if (!text || !text.trim()) { showToast('데이터가 비어있습니다'); return; }
+  try {
+    const imported = JSON.parse(text.trim());
+    if (!imported.name || !imported.categories) { showToast('유효하지 않은 WBS 데이터입니다'); return; }
+    imported.id = 'kpi_' + Date.now();
+    imported.importedAt = new Date().toISOString();
+    kpiProjects.push(imported);
+    saveKpiProjects();
+    showToast(`"${imported.name}" 프로젝트를 가져왔습니다`);
+    closeModal(); render();
+  } catch(err) { showToast('WBS 데이터 형식이 올바르지 않습니다'); }
+}
+
+function fallbackCopyText(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); showToast('WBS 데이터가 복사되었습니다!'); }
+  catch(e) { showToast('복사에 실패했습니다'); }
+  document.body.removeChild(ta);
+}
+
+function generateKpiQrCode(data) {
+  const canvas = document.getElementById('kpi-qr-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  // Simple QR code generation using qrcode-generator library (loaded dynamically)
+  if (typeof qrcode === 'undefined') {
+    // Load qrcode-generator library
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
+    script.onload = () => { drawQrCode(data, canvas); };
+    script.onerror = () => { 
+      ctx.fillStyle = '#333'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('QR 라이브러리 로드 실패', canvas.width/2, canvas.height/2);
+    };
+    document.head.appendChild(script);
+  } else {
+    drawQrCode(data, canvas);
+  }
+}
+
+function drawQrCode(data, canvas) {
+  try {
+    const qr = qrcode(0, 'L');
+    qr.addData(data);
+    qr.make();
+    const size = 256;
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const cellSize = size / qr.getModuleCount();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#000000';
+    for (let row = 0; row < qr.getModuleCount(); row++) {
+      for (let col = 0; col < qr.getModuleCount(); col++) {
+        if (qr.isDark(row, col)) {
+          ctx.fillRect(col * cellSize, row * cellSize, cellSize + 0.5, cellSize + 0.5);
+        }
+      }
+    }
+  } catch(e) {
+    const ctx = canvas.getContext('2d');
+    canvas.width = 256; canvas.height = 256;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 256, 256);
+    ctx.fillStyle = '#333'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('데이터가 너무 커서 QR 생성 실패', 128, 120);
+    ctx.fillText('JSON 또는 클립보드를 사용하세요', 128, 140);
+  }
 }
 
 // Card state
@@ -6749,12 +6824,16 @@ function renderKpiProject() {
       const tasks = sc.tasks || [];
       const scDone = tasks.filter(t => t.done).length;
       const tasksHtml = tasks.map((task, tIdx) => `
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--bg-card-border)">
-          <button data-action="kpi-toggle-task" data-cat="${catIdx}" data-subcat="${scIdx}" data-task="${tIdx}" style="background:none;border:2px solid ${task.done ? '#10b981' : 'var(--text-muted)'};width:20px;height:20px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;${task.done ? 'background:#10b981' : ''}">
-            ${task.done ? '<i class="ri-check-line" style="color:#fff;font-size:12px"></i>' : ''}
-          </button>
-          <span style="flex:1;font-size:13px;color:${task.done ? 'var(--text-muted)' : 'var(--text-primary)'};${task.done ? 'text-decoration:line-through' : ''}">${escapeHtml(task.text)}</span>
-          <button data-action="kpi-delete-task" data-cat="${catIdx}" data-subcat="${scIdx}" data-task="${tIdx}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px;font-size:14px"><i class="ri-close-line"></i></button>
+        <div style="border-bottom:1px solid var(--bg-card-border)">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 12px">
+            <button data-action="kpi-toggle-task" data-cat="${catIdx}" data-subcat="${scIdx}" data-task="${tIdx}" style="background:none;border:2px solid ${task.done ? '#10b981' : 'var(--text-muted)'};width:20px;height:20px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;${task.done ? 'background:#10b981' : ''}">
+              ${task.done ? '<i class="ri-check-line" style="color:#fff;font-size:12px"></i>' : ''}
+            </button>
+            <span style="flex:1;font-size:13px;color:${task.done ? 'var(--text-muted)' : 'var(--text-primary)'};${task.done ? 'text-decoration:line-through' : ''}">${escapeHtml(task.text)}</span>
+            <button data-action="kpi-edit-task-memo" data-cat="${catIdx}" data-subcat="${scIdx}" data-task="${tIdx}" style="background:none;border:none;color:${task.memo ? '#3b82f6' : 'var(--text-muted)'};cursor:pointer;padding:2px;font-size:14px" title="비고"><i class="ri-sticky-note-line"></i></button>
+            <button data-action="kpi-delete-task" data-cat="${catIdx}" data-subcat="${scIdx}" data-task="${tIdx}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px;font-size:14px"><i class="ri-close-line"></i></button>
+          </div>
+          ${task.memo ? `<div data-action="kpi-edit-task-memo" data-cat="${catIdx}" data-subcat="${scIdx}" data-task="${tIdx}" style="padding:2px 12px 8px 40px;font-size:11px;color:#3b82f6;cursor:pointer;white-space:pre-wrap"><i class="ri-sticky-note-line" style="font-size:10px"></i> ${escapeHtml(task.memo)}</div>` : ''}
         </div>
       `).join('');
 
@@ -6794,7 +6873,8 @@ function renderKpiProject() {
     <div class="sub-header">
       <button data-action="kpi-back-to-list"><i class="ri-arrow-left-line"></i></button>
       <span>${escapeHtml(proj.name)}</span>
-      <button style="margin-left:auto;background:none;border:none;color:var(--text-muted);cursor:pointer" data-action="kpi-edit-project" data-kpi-id="${proj.id}"><i class="ri-settings-3-line"></i></button>
+      <button style="margin-left:auto;background:none;border:none;color:var(--accent-primary);cursor:pointer" data-action="kpi-share-project" data-kpi-id="${proj.id}"><i class="ri-share-line"></i></button>
+      <button style="background:none;border:none;color:var(--text-muted);cursor:pointer" data-action="kpi-edit-project" data-kpi-id="${proj.id}"><i class="ri-settings-3-line"></i></button>
     </div>
     <div style="padding:12px 16px;flex:1;overflow-y:auto">
       <div style="background:var(--bg-card);border-radius:12px;padding:16px;margin-bottom:12px;border:1px solid var(--bg-card-border)">
@@ -7587,7 +7667,7 @@ function renderModal() {
     body = `
       ${kpiModalFields.map(f => `
         <div class="form-group"><label class="form-label">${escapeHtml(f.label)}</label>
-          <input class="form-input" id="${f.id}" value="${escapeHtml(f.value || '')}" placeholder="${escapeHtml(f.placeholder || '')}" ${f.type === 'date' ? 'type="date"' : ''} ${f.autofocus ? 'autofocus' : ''}></div>
+          ${f.type === 'textarea' ? `<textarea class="form-input" id="${f.id}" placeholder="${escapeHtml(f.placeholder || '')}" style="min-height:60px;resize:vertical;font-family:inherit" ${f.autofocus ? 'autofocus' : ''}>${escapeHtml(f.value || '')}</textarea>` : `<input class="form-input" id="${f.id}" value="${escapeHtml(f.value || '')}" placeholder="${escapeHtml(f.placeholder || '')}" ${f.type === 'date' ? 'type="date"' : ''} ${f.autofocus ? 'autofocus' : ''}>`}</div>
       `).join('')}
       <div class="btn-row">
         <button class="btn btn-outline" data-modal-close>취소</button>
@@ -7603,9 +7683,51 @@ function renderModal() {
         <button class="btn btn-primary" data-modal-save="kpi-confirm" style="background:#ef4444">삭제</button>
       </div>
     `;
+  } else if (modalType === 'kpi-share') {
+    const shareProj = kpiProjects.find(p => p.id === kpiShareProjectId);
+    title = '프로젝트 공유';
+    body = `
+      <div style="padding:8px 0;color:var(--text-secondary);font-size:13px;text-align:center;margin-bottom:12px">
+        <i class="ri-team-line" style="font-size:24px;color:var(--accent-primary)"></i>
+        <div style="margin-top:4px;font-weight:600;color:var(--text-primary)">${escapeHtml(shareProj?.name || '')}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">팀원과 WBS 데이터를 공유하세요</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button data-action="kpi-share-export-json" class="btn btn-outline" style="width:100%;display:flex;align-items:center;gap:8px;justify-content:flex-start;padding:12px 16px">
+          <i class="ri-download-2-line" style="font-size:18px;color:#3b82f6"></i>
+          <div style="text-align:left"><div style="font-size:13px;font-weight:600">JSON 파일 내보내기</div><div style="font-size:10px;color:var(--text-muted)">파일로 저장하여 팀원에게 전송</div></div>
+        </button>
+        <button data-action="kpi-share-import-json" class="btn btn-outline" style="width:100%;display:flex;align-items:center;gap:8px;justify-content:flex-start;padding:12px 16px">
+          <i class="ri-upload-2-line" style="font-size:18px;color:#10b981"></i>
+          <div style="text-align:left"><div style="font-size:13px;font-weight:600">JSON 파일 가져오기</div><div style="font-size:10px;color:var(--text-muted)">팀원이 보낸 파일을 열기</div></div>
+        </button>
+        <div style="border-top:1px solid var(--bg-card-border);margin:4px 0"></div>
+        <button data-action="kpi-share-qr" class="btn btn-outline" style="width:100%;display:flex;align-items:center;gap:8px;justify-content:flex-start;padding:12px 16px">
+          <i class="ri-qr-code-line" style="font-size:18px;color:#8b5cf6"></i>
+          <div style="text-align:left"><div style="font-size:13px;font-weight:600">QR코드 생성</div><div style="font-size:10px;color:var(--text-muted)">상대방이 QR 스캔으로 가져오기</div></div>
+        </button>
+        <div style="border-top:1px solid var(--bg-card-border);margin:4px 0"></div>
+        <button data-action="kpi-share-clipboard-copy" class="btn btn-outline" style="width:100%;display:flex;align-items:center;gap:8px;justify-content:flex-start;padding:12px 16px">
+          <i class="ri-file-copy-line" style="font-size:18px;color:#f59e0b"></i>
+          <div style="text-align:left"><div style="font-size:13px;font-weight:600">클립보드 복사</div><div style="font-size:10px;color:var(--text-muted)">데이터를 복사하여 메신저로 전송</div></div>
+        </button>
+        <button data-action="kpi-share-clipboard-paste" class="btn btn-outline" style="width:100%;display:flex;align-items:center;gap:8px;justify-content:flex-start;padding:12px 16px">
+          <i class="ri-clipboard-line" style="font-size:18px;color:#06b6d4"></i>
+          <div style="text-align:left"><div style="font-size:13px;font-weight:600">클립보드 붙여넣기</div><div style="font-size:10px;color:var(--text-muted)">받은 데이터를 붙여넣어 가져오기</div></div>
+        </button>
+      </div>
+    `;
+  } else if (modalType === 'kpi-qr') {
+    title = 'QR코드 공유';
+    body = `
+      <div style="display:flex;flex-direction:column;align-items:center;padding:16px 0">
+        <canvas id="kpi-qr-canvas" width="256" height="256" style="border:8px solid #fff;border-radius:8px;background:#fff"></canvas>
+        <div style="margin-top:12px;font-size:12px;color:var(--text-muted);text-align:center">상대방이 이 QR코드를 스캔하면<br>WBS 데이터를 가져올 수 있습니다</div>
+      </div>
+    `;
   }
 
-  const centerClass = (modalType === 'private-pin' || modalType === 'security-explain' || modalType === 'kpi-prompt' || modalType === 'kpi-confirm') ? ' modal-center' : '';
+  const centerClass = (modalType === 'private-pin' || modalType === 'security-explain' || modalType === 'kpi-prompt' || modalType === 'kpi-confirm' || modalType === 'kpi-share' || modalType === 'kpi-qr') ? ' modal-center' : '';
   return `
     <div class="modal-overlay${centerClass}" data-modal-overlay>
       <div class="modal" onclick="event.stopPropagation()" id="modal-inner">
@@ -9108,12 +9230,29 @@ function handleAction(action, el) {
       const proj6 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
       if (!proj6 || !proj6.categories[catIdx6]?.subcategories[scIdx3]) break;
       showKpiPrompt('태스크 추가', [
-        { label: '태스크 내용', id: 'kpi-f-task', value: '', placeholder: '태스크 내용 입력', autofocus: true }
+        { label: '태스크 내용', id: 'kpi-f-task', value: '', placeholder: '태스크 내용 입력', autofocus: true },
+        { label: '비고 (선택)', id: 'kpi-f-memo', value: '', placeholder: '메모, 참고사항 등', type: 'textarea' }
       ], (vals) => {
         const taskText = vals['kpi-f-task'];
         if (!taskText || !taskText.trim()) return;
         if (!proj6.categories[catIdx6].subcategories[scIdx3].tasks) proj6.categories[catIdx6].subcategories[scIdx3].tasks = [];
-        proj6.categories[catIdx6].subcategories[scIdx3].tasks.push({ text: taskText.trim(), done: false, createdAt: new Date().toISOString() });
+        proj6.categories[catIdx6].subcategories[scIdx3].tasks.push({ text: taskText.trim(), memo: (vals['kpi-f-memo'] || '').trim(), done: false, createdAt: new Date().toISOString() });
+        saveKpiProjects();
+        render();
+      });
+      break;
+    }
+    case 'kpi-edit-task-memo': {
+      const catIdxM = parseInt(el.dataset.cat);
+      const scIdxM = parseInt(el.dataset.subcat);
+      const tIdxM = parseInt(el.dataset.task);
+      const projM = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!projM || !projM.categories[catIdxM]?.subcategories[scIdxM]?.tasks[tIdxM]) break;
+      const curTask = projM.categories[catIdxM].subcategories[scIdxM].tasks[tIdxM];
+      showKpiPrompt('비고 편집', [
+        { label: '비고', id: 'kpi-f-memo', value: curTask.memo || '', placeholder: '메모, 참고사항 등', type: 'textarea' }
+      ], (vals) => {
+        curTask.memo = (vals['kpi-f-memo'] || '').trim();
         saveKpiProjects();
         render();
       });
@@ -9139,6 +9278,90 @@ function handleAction(action, el) {
       proj8.categories[catIdx8].subcategories[scIdx5].tasks.splice(tIdx2, 1);
       saveKpiProjects();
       render();
+      break;
+    }
+
+    // KPI Share actions
+    case 'kpi-share-project': {
+      const shareId = el.dataset.kpiId;
+      const shareProj = kpiProjects.find(p => p.id === shareId);
+      if (!shareProj) break;
+      kpiShareProjectId = shareId;
+      showModal = true; modalType = 'kpi-share'; render();
+      break;
+    }
+    case 'kpi-share-export-json': {
+      const expProj = kpiProjects.find(p => p.id === kpiShareProjectId);
+      if (!expProj) break;
+      const jsonStr = JSON.stringify(expProj, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `WBS_${expProj.name.replace(/[^a-zA-Z0-9가-힣]/g, '_')}_${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      showToast('JSON 파일이 다운로드되었습니다');
+      break;
+    }
+    case 'kpi-share-import-json': {
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file'; fileInput.accept = '.json';
+      fileInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const imported = JSON.parse(ev.target.result);
+            if (!imported.name || !imported.categories) { showToast('유효하지 않은 WBS 파일입니다'); return; }
+            imported.id = 'kpi_' + Date.now();
+            imported.importedAt = new Date().toISOString();
+            kpiProjects.push(imported);
+            saveKpiProjects();
+            showToast(`"${imported.name}" 프로젝트를 가져왔습니다`);
+            closeModal(); render();
+          } catch(err) { showToast('파일을 읽을 수 없습니다'); }
+        };
+        reader.readAsText(file);
+      };
+      fileInput.click();
+      break;
+    }
+    case 'kpi-share-qr': {
+      const qrProj = kpiProjects.find(p => p.id === kpiShareProjectId);
+      if (!qrProj) break;
+      const qrData = JSON.stringify(qrProj);
+      if (qrData.length > 2000) {
+        showToast('데이터가 너무 커서 QR코드로 변환할 수 없습니다. JSON 파일 또는 클립보드를 사용하세요.');
+        break;
+      }
+      kpiQrData = qrData;
+      showModal = true; modalType = 'kpi-qr'; render();
+      setTimeout(() => { generateKpiQrCode(qrData); }, 100);
+      break;
+    }
+    case 'kpi-share-clipboard-copy': {
+      const cpProj = kpiProjects.find(p => p.id === kpiShareProjectId);
+      if (!cpProj) break;
+      const cpData = JSON.stringify(cpProj);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(cpData).then(() => {
+          showToast('WBS 데이터가 클립보드에 복사되었습니다. 팀원에게 전송하세요!');
+        }).catch(() => { fallbackCopyText(cpData); });
+      } else { fallbackCopyText(cpData); }
+      break;
+    }
+    case 'kpi-share-clipboard-paste': {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then(text => { importKpiFromText(text); }).catch(() => {
+          showKpiPrompt('WBS 데이터 붙여넣기', [
+            { label: 'WBS 데이터', id: 'kpi-f-paste', value: '', placeholder: '복사한 WBS 데이터를 여기에 붙여넣으세요', type: 'textarea' }
+          ], (vals) => { importKpiFromText(vals['kpi-f-paste']); });
+        });
+      } else {
+        showKpiPrompt('WBS 데이터 붙여넣기', [
+          { label: 'WBS 데이터', id: 'kpi-f-paste', value: '', placeholder: '복사한 WBS 데이터를 여기에 붙여넣으세요', type: 'textarea' }
+        ], (vals) => { importKpiFromText(vals['kpi-f-paste']); });
+      }
       break;
     }
 
