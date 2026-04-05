@@ -213,6 +213,7 @@ let scanDropdownSearch = '';
 let scanWalletAddress = '';
 // Org chart pan/zoom state
 let orgPanX = 0, orgPanY = 0, orgZoom = 1;
+let orgViewMode = 'tree'; // 'tree' | 'list-name' | 'list-amount'
 let orgIsPanning = false, orgPanStartX = 0, orgPanStartY = 0;
 let orgSearchVisible = false;
 // Interpreter state
@@ -309,6 +310,16 @@ function loadProjectFavorites() {
     if (saved) projectFavorites = JSON.parse(saved);
   } catch(e) { projectFavorites = []; }
 }
+
+// KPI state
+let kpiScreen = 'list'; // 'list' | 'project' | 'task'
+let kpiProjects = [];
+let kpiSelectedProjectId = null;
+let kpiSelectedCategoryId = null;
+let kpiSelectedSubcategoryId = null;
+
+function saveKpiProjects() { try { localStorage.setItem('ibag_kpi_projects', JSON.stringify(kpiProjects)); } catch(e) {} }
+function loadKpiProjects() { try { const d = localStorage.getItem('ibag_kpi_projects'); if (d) kpiProjects = JSON.parse(d); } catch(e) {} }
 
 // Card state
 let cardScreen = 'main'; // 'main' | 'apply' | 'apply-design' | 'apply-form' | 'detail'
@@ -1237,6 +1248,7 @@ function renderMainLayout() {
     case 'ibag': screenHtml = renderIBag(); break;
     case 'ai': screenHtml = renderAIChat(); break;
     case 'card': screenHtml = renderCardScreen(); break;
+    case 'kpi': screenHtml = renderKpiScreen(); break;
     case 'web3app': screenHtml = renderWeb3App(); break;
     // Sub screens
     case 'bookmark-detail': screenHtml = renderBookmarks(); break;
@@ -1476,9 +1488,9 @@ function renderHome() {
         <div class="action-icon" style="background:linear-gradient(135deg,#f9731615,#f59e0b15)"><i class="ri-download-cloud-2-fill" style="color:#f97316"></i></div>
         <span>Web3App</span>
       </div>
-      <div class="action-btn" data-action="goto-card-tab">
-        <div class="action-icon" style="background:linear-gradient(135deg,#8b5cf615,#a78bfa15)"><i class="ri-bank-card-fill" style="color:#8b5cf6"></i></div>
-        <span>${escapeHtml(t('tab_card') || 'Card')}</span>
+      <div class="action-btn" data-action="goto-kpi">
+        <div class="action-icon" style="background:linear-gradient(135deg,#8b5cf615,#a78bfa15)"><i class="ri-bar-chart-box-fill" style="color:#8b5cf6"></i></div>
+        <span>KPI</span>
       </div>
       <div class="action-btn" data-action="open-alpha-trip-home">
         <div class="action-icon" style="background:linear-gradient(135deg,#3b82f615,#2563eb15)"><i class="ri-plane-fill" style="color:#3b82f6"></i></div>
@@ -5319,13 +5331,101 @@ function renderOrgChartView() {
         <strong style="color:#10b981">$${totalAmount.toLocaleString()}</strong>
       </div>
     </div>
+    <div class="org-view-tabs" style="display:flex;gap:4px;padding:8px 16px;overflow-x:auto">
+      <button class="org-view-tab ${orgViewMode==='tree'?'active':''}" data-action="org-view-tree" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--bg-card-border);background:${orgViewMode==='tree'?'var(--accent-primary)':'transparent'};color:${orgViewMode==='tree'?'#fff':'var(--text-secondary)'};cursor:pointer;white-space:nowrap">
+        <i class="ri-organization-chart"></i> 조직도
+      </button>
+      <button class="org-view-tab ${orgViewMode==='list-name'?'active':''}" data-action="org-view-list-name" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--bg-card-border);background:${orgViewMode==='list-name'?'var(--accent-primary)':'transparent'};color:${orgViewMode==='list-name'?'#fff':'var(--text-secondary)'};cursor:pointer;white-space:nowrap">
+        <i class="ri-sort-alphabet-asc"></i> 이름순
+      </button>
+      <button class="org-view-tab ${orgViewMode==='list-amount'?'active':''}" data-action="org-view-list-amount" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--bg-card-border);background:${orgViewMode==='list-amount'?'var(--accent-primary)':'transparent'};color:${orgViewMode==='list-amount'?'#fff':'var(--text-secondary)'};cursor:pointer;white-space:nowrap">
+        <i class="ri-money-dollar-circle-line"></i> 투자금순
+      </button>
+    </div>
+    ${orgViewMode === 'tree' ? `
     <div class="org-viewport" id="org-viewport">
       <div class="org-tree-pannable" id="org-tree-pannable" style="transform:translate(${orgPanX}px,${orgPanY}px) scale(${orgZoom})">
         ${treeHtml}
       </div>
     </div>
+    ` : renderOrgListView(nodes, orgViewMode)}
     <button class="fab" data-action="add-org-root"><i class="ri-add-line"></i></button>
   `;
+}
+
+// Org list view - sorted by name or amount
+function renderOrgListView(nodes, mode) {
+  if (nodes.length === 0) return '<div class="empty-state" style="padding:40px 16px;text-align:center;color:var(--text-muted)"><i class="ri-user-line" style="font-size:40px;margin-bottom:12px;display:block"></i><p>멤버가 없습니다</p></div>';
+
+  // Find parent name helper
+  function getParentName(node) {
+    if (!node.parentId) return '-';
+    const parent = nodes.find(n => n.id === node.parentId);
+    return parent ? (parent.name || '?') : '-';
+  }
+
+  // Sort nodes
+  let sorted = [...nodes];
+  if (mode === 'list-name') {
+    sorted.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+  } else if (mode === 'list-amount') {
+    sorted.sort((a, b) => (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0));
+  }
+
+  const totalAmount = nodes.reduce((sum, n) => sum + (parseFloat(n.amount) || 0), 0);
+
+  const listHtml = sorted.map((node, idx) => {
+    const amount = parseFloat(node.amount) || 0;
+    const percent = totalAmount > 0 ? ((amount / totalAmount) * 100).toFixed(1) : '0.0';
+    const depth = getNodeDepth(node, nodes);
+    const depthLabel = depth === 0 ? 'ROOT' : `L${depth}`;
+    const children = nodes.filter(n => n.parentId === node.id);
+
+    return `
+      <div class="org-list-item" data-action="edit-org-node" data-node-id="${node.id}" style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--bg-card-border);cursor:pointer">
+        <div style="width:28px;text-align:center;font-size:12px;font-weight:700;color:var(--text-muted)">${idx + 1}</div>
+        <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#3b82f620,#06b6d420);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="ri-user-3-fill" style="color:var(--accent-primary);font-size:18px"></i>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;color:var(--text-primary)">${escapeHtml(node.name || '?')}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+            <span style="background:var(--bg-card);padding:1px 6px;border-radius:4px;margin-right:4px">${depthLabel}</span>
+            상위: ${escapeHtml(getParentName(node))}
+            ${children.length > 0 ? ` · 하위 ${children.length}명` : ''}
+          </div>
+          ${node.phone ? `<div style="font-size:11px;color:var(--text-muted);margin-top:1px"><i class="ri-phone-line" style="font-size:10px"></i> ${escapeHtml(node.phone)}</div>` : ''}
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:14px;font-weight:700;color:#10b981">$${amount.toLocaleString()}</div>
+          ${mode === 'list-amount' && totalAmount > 0 ? `<div style="font-size:11px;color:var(--text-muted)">${percent}%</div>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div style="flex:1;overflow-y:auto;background:var(--bg-card);border-radius:12px;margin:0 12px 12px">
+      <div style="padding:10px 16px;border-bottom:1px solid var(--bg-card-border);display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">
+          ${mode === 'list-name' ? '<i class="ri-sort-alphabet-asc"></i> 이름순 정렬' : '<i class="ri-money-dollar-circle-line"></i> 투자금 높은순'}
+        </span>
+        <span style="font-size:12px;color:var(--text-muted)">${sorted.length}명</span>
+      </div>
+      ${listHtml}
+    </div>
+  `;
+}
+
+function getNodeDepth(node, nodes) {
+  let depth = 0;
+  let current = node;
+  while (current.parentId) {
+    current = nodes.find(n => n.id === current.parentId);
+    if (!current) break;
+    depth++;
+  }
+  return depth;
 }
 
 // Draw SVG connection lines between org chart nodes
@@ -6253,6 +6353,193 @@ function renderCardDetail() {
   `;
 }
 
+
+// ═══════════════════════════════════════════════════════════
+// KPI / WBS (Work Breakdown Structure)
+// ═══════════════════════════════════════════════════════════
+
+function renderKpiScreen() {
+  switch (kpiScreen) {
+    case 'project': return renderKpiProject();
+    case 'task': return renderKpiTask();
+    default: return renderKpiList();
+  }
+}
+
+function renderKpiList() {
+  const projectsHtml = kpiProjects.length === 0 ? `
+    <div class="empty-state" style="padding:60px 20px;text-align:center">
+      <i class="ri-bar-chart-box-line" style="font-size:48px;color:var(--text-muted);margin-bottom:16px;display:block"></i>
+      <h3 style="color:var(--text-primary);margin-bottom:8px">프로젝트를 추가하세요</h3>
+      <p style="color:var(--text-muted);font-size:13px">KPI 프로젝트를 만들고 WBS로 \n업무를 관리하세요</p>
+    </div>
+  ` : kpiProjects.map(proj => {
+    const totalTasks = countAllTasks(proj);
+    const doneTasks = countDoneTasks(proj);
+    const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+    const daysLeft = proj.deadline ? Math.ceil((new Date(proj.deadline) - new Date()) / (1000*60*60*24)) : null;
+    return `
+      <div class="kpi-project-card" data-action="kpi-open-project" data-kpi-id="${proj.id}" style="background:var(--bg-card);border-radius:12px;padding:16px;margin-bottom:12px;cursor:pointer;border:1px solid var(--bg-card-border)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+          <div>
+            <div style="font-size:16px;font-weight:700;color:var(--text-primary)">${escapeHtml(proj.name)}</div>
+            ${proj.goal ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px">${escapeHtml(proj.goal)}</div>` : ''}
+          </div>
+          <button data-action="kpi-delete-project" data-kpi-id="${proj.id}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:4px" onclick="event.stopPropagation()"><i class="ri-delete-bin-line"></i></button>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:10px">
+          ${proj.deadline ? `<div style="font-size:11px;color:${daysLeft <= 0 ? '#ef4444' : daysLeft <= 7 ? '#f59e0b' : 'var(--text-muted)'}">
+            <i class="ri-calendar-line"></i> ${proj.deadline} ${daysLeft > 0 ? `(D-${daysLeft})` : daysLeft === 0 ? '(D-Day!)' : `(D+${Math.abs(daysLeft)})`}
+          </div>` : ''}
+          <div style="font-size:11px;color:var(--text-muted)"><i class="ri-task-line"></i> ${doneTasks}/${totalTasks}</div>
+        </div>
+        <div style="background:var(--bg-main);border-radius:6px;height:6px;overflow:hidden">
+          <div style="height:100%;width:${progress}%;background:linear-gradient(90deg,#10b981,#06b6d4);border-radius:6px;transition:width 0.3s"></div>
+        </div>
+        <div style="text-align:right;font-size:11px;color:var(--text-muted);margin-top:4px">${progress}%</div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="sub-header">
+      <button data-action="go-back"><i class="ri-arrow-left-line"></i></button>
+      <span>KPI</span>
+    </div>
+    <div style="padding:12px 16px;flex:1;overflow-y:auto">
+      ${projectsHtml}
+    </div>
+    <button class="fab" data-action="kpi-add-project"><i class="ri-add-line"></i></button>
+  `;
+}
+
+function renderKpiProject() {
+  const proj = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+  if (!proj) { kpiScreen = 'list'; return renderKpiList(); }
+
+  const totalTasks = countAllTasks(proj);
+  const doneTasks = countDoneTasks(proj);
+  const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+  const daysLeft = proj.deadline ? Math.ceil((new Date(proj.deadline) - new Date()) / (1000*60*60*24)) : null;
+
+  // Countdown
+  let countdownHtml = '';
+  if (proj.deadline) {
+    const now = new Date();
+    const dl = new Date(proj.deadline + 'T23:59:59');
+    const diff = dl - now;
+    if (diff > 0) {
+      const days = Math.floor(diff / (1000*60*60*24));
+      const hours = Math.floor((diff % (1000*60*60*24)) / (1000*60*60));
+      const mins = Math.floor((diff % (1000*60*60)) / (1000*60));
+      countdownHtml = `
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
+          <div style="background:var(--bg-main);border-radius:8px;padding:8px 14px;text-align:center;min-width:50px">
+            <div style="font-size:20px;font-weight:800;color:#10b981">${days}</div>
+            <div style="font-size:10px;color:var(--text-muted)">일</div>
+          </div>
+          <div style="background:var(--bg-main);border-radius:8px;padding:8px 14px;text-align:center;min-width:50px">
+            <div style="font-size:20px;font-weight:800;color:#10b981">${hours}</div>
+            <div style="font-size:10px;color:var(--text-muted)">시간</div>
+          </div>
+          <div style="background:var(--bg-main);border-radius:8px;padding:8px 14px;text-align:center;min-width:50px">
+            <div style="font-size:20px;font-weight:800;color:#10b981">${mins}</div>
+            <div style="font-size:10px;color:var(--text-muted)">분</div>
+          </div>
+        </div>
+      `;
+    } else {
+      countdownHtml = `<div style="text-align:center;margin-top:8px;color:#ef4444;font-weight:700">마감일 경과!</div>`;
+    }
+  }
+
+  const categories = proj.categories || [];
+  const categoriesHtml = categories.map((cat, catIdx) => {
+    const subcats = cat.subcategories || [];
+    const catTasks = subcats.reduce((sum, sc) => sum + (sc.tasks || []).length, 0);
+    const catDone = subcats.reduce((sum, sc) => sum + (sc.tasks || []).filter(t => t.done).length, 0);
+
+    const subcatsHtml = subcats.map((sc, scIdx) => {
+      const tasks = sc.tasks || [];
+      const scDone = tasks.filter(t => t.done).length;
+      const tasksHtml = tasks.map((task, tIdx) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--bg-card-border)">
+          <button data-action="kpi-toggle-task" data-cat="${catIdx}" data-subcat="${scIdx}" data-task="${tIdx}" style="background:none;border:2px solid ${task.done ? '#10b981' : 'var(--text-muted)'};width:20px;height:20px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;${task.done ? 'background:#10b981' : ''}">
+            ${task.done ? '<i class="ri-check-line" style="color:#fff;font-size:12px"></i>' : ''}
+          </button>
+          <span style="flex:1;font-size:13px;color:${task.done ? 'var(--text-muted)' : 'var(--text-primary)'};${task.done ? 'text-decoration:line-through' : ''}">${escapeHtml(task.text)}</span>
+          <button data-action="kpi-delete-task" data-cat="${catIdx}" data-subcat="${scIdx}" data-task="${tIdx}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px;font-size:14px"><i class="ri-close-line"></i></button>
+        </div>
+      `).join('');
+
+      return `
+        <div style="margin-left:12px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+            <i class="ri-folder-line" style="color:var(--accent-primary);font-size:14px"></i>
+            <span style="font-size:13px;font-weight:600;color:var(--text-primary);flex:1;cursor:pointer" data-action="kpi-rename-subcat" data-cat="${catIdx}" data-subcat="${scIdx}">${escapeHtml(sc.name)}</span>
+            <span style="font-size:11px;color:var(--text-muted)">${scDone}/${tasks.length}</span>
+            <button data-action="kpi-delete-subcat" data-cat="${catIdx}" data-subcat="${scIdx}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px"><i class="ri-delete-bin-line" style="font-size:12px"></i></button>
+          </div>
+          <div style="background:var(--bg-main);border-radius:8px;overflow:hidden">
+            ${tasksHtml}
+            <div data-action="kpi-add-task" data-cat="${catIdx}" data-subcat="${scIdx}" style="padding:8px 12px;color:var(--text-muted);font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px">
+              <i class="ri-add-line"></i> 태스크 추가
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div style="background:var(--bg-card);border-radius:12px;padding:14px;margin-bottom:12px;border:1px solid var(--bg-card-border)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <i class="ri-folder-3-fill" style="color:#f59e0b;font-size:18px"></i>
+          <span style="font-size:15px;font-weight:700;color:var(--text-primary);flex:1;cursor:pointer" data-action="kpi-rename-cat" data-cat="${catIdx}">${escapeHtml(cat.name)}</span>
+          <span style="font-size:11px;color:var(--text-muted)">${catDone}/${catTasks}</span>
+          <button data-action="kpi-add-subcat" data-cat="${catIdx}" style="background:none;border:none;color:var(--accent-primary);cursor:pointer;padding:2px"><i class="ri-add-circle-line" style="font-size:16px"></i></button>
+          <button data-action="kpi-delete-cat" data-cat="${catIdx}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:2px"><i class="ri-delete-bin-line" style="font-size:14px"></i></button>
+        </div>
+        ${subcatsHtml}
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="sub-header">
+      <button data-action="kpi-back-to-list"><i class="ri-arrow-left-line"></i></button>
+      <span>${escapeHtml(proj.name)}</span>
+      <button style="margin-left:auto;background:none;border:none;color:var(--text-muted);cursor:pointer" data-action="kpi-edit-project" data-kpi-id="${proj.id}"><i class="ri-settings-3-line"></i></button>
+    </div>
+    <div style="padding:12px 16px;flex:1;overflow-y:auto">
+      <div style="background:var(--bg-card);border-radius:12px;padding:16px;margin-bottom:12px;border:1px solid var(--bg-card-border)">
+        ${proj.goal ? `<div style="text-align:center;font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px"><i class="ri-focus-3-line"></i> ${escapeHtml(proj.goal)}</div>` : ''}
+        ${proj.deadline ? `<div style="text-align:center;font-size:12px;color:var(--text-muted)">완성일: ${proj.deadline}</div>` : ''}
+        ${countdownHtml}
+        <div style="margin-top:12px;background:var(--bg-main);border-radius:6px;height:8px;overflow:hidden">
+          <div style="height:100%;width:${progress}%;background:linear-gradient(90deg,#10b981,#06b6d4);border-radius:6px;transition:width 0.3s"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px">
+          <span style="font-size:11px;color:var(--text-muted)">${doneTasks}/${totalTasks} 완료</span>
+          <span style="font-size:11px;font-weight:700;color:#10b981">${progress}%</span>
+        </div>
+      </div>
+      ${categoriesHtml}
+      <div data-action="kpi-add-cat" style="background:var(--bg-card);border-radius:12px;padding:14px;text-align:center;cursor:pointer;border:1px dashed var(--bg-card-border);color:var(--text-muted);font-size:13px">
+        <i class="ri-add-line"></i> 대메뉴 추가
+      </div>
+    </div>
+  `;
+}
+
+function countAllTasks(proj) {
+  return (proj.categories || []).reduce((sum, cat) =>
+    sum + (cat.subcategories || []).reduce((s, sc) => s + (sc.tasks || []).length, 0), 0);
+}
+
+function countDoneTasks(proj) {
+  return (proj.categories || []).reduce((sum, cat) =>
+    sum + (cat.subcategories || []).reduce((s, sc) => s + (sc.tasks || []).filter(t => t.done).length, 0), 0);
+}
 
 // ═══════════════════════════════════════════════════════════
 // WEB3APP DOWNLOAD SERVICE
@@ -7887,6 +8174,7 @@ function handleAction(action, el) {
     case 'goto-translate': state.currentTab = 'translate'; render(); break;
     case 'goto-ibag': state.currentTab = 'ibag'; bmTab = 'bookmarks'; render(); break;
     case 'goto-card-tab': state.currentTab = 'card'; cardScreen = 'main'; render(); break;
+    case 'goto-kpi': state.currentTab = 'kpi'; kpiScreen = 'list'; render(); break;
     case 'goto-web3app': showPlusMenu = false; if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Browser) { window.Capacitor.Plugins.Browser.open({ url: 'https://web3dapp.io' }); } else if (IS_ELECTRON && window.electronAPI) { window.electronAPI.openExternal('https://web3dapp.io'); } else { window.open('https://web3dapp.io', '_blank'); } break;
     case 'goto-translate-plus': showPlusMenu = false; state.currentTab = 'translate'; render(); break;
     case 'goto-orgchart-home': state.currentTab = 'orgchart'; render(); break;
@@ -8358,6 +8646,166 @@ function handleAction(action, el) {
     }
 
     case 'goto-orgchart': showPlusMenu = false; state.currentTab = 'orgchart'; render(); break;
+
+    // KPI / WBS actions
+    case 'kpi-add-project': {
+      const name = prompt('프로젝트 이름:');
+      if (!name || !name.trim()) break;
+      const goal = prompt('목표 (선택):') || '';
+      const deadline = prompt('마감일 (YYYY-MM-DD, 선택):') || '';
+      const newProj = {
+        id: 'kpi_' + Date.now(),
+        name: name.trim(),
+        goal: goal.trim(),
+        deadline: deadline.trim(),
+        categories: [],
+        createdAt: new Date().toISOString()
+      };
+      kpiProjects.push(newProj);
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-delete-project': {
+      const projId = el.dataset.kpiId;
+      if (confirm('이 프로젝트를 삭제하시겠습니까?')) {
+        kpiProjects = kpiProjects.filter(p => p.id !== projId);
+        saveKpiProjects();
+        render();
+      }
+      break;
+    }
+    case 'kpi-open-project': {
+      kpiSelectedProjectId = el.dataset.kpiId || el.closest('[data-kpi-id]')?.dataset.kpiId;
+      kpiScreen = 'project';
+      render();
+      break;
+    }
+    case 'kpi-back-to-list': {
+      kpiScreen = 'list';
+      render();
+      break;
+    }
+    case 'kpi-edit-project': {
+      const epId = el.dataset.kpiId;
+      const ep = kpiProjects.find(p => p.id === epId);
+      if (!ep) break;
+      const newName = prompt('프로젝트 이름:', ep.name);
+      if (newName && newName.trim()) ep.name = newName.trim();
+      const newGoal = prompt('목표:', ep.goal);
+      if (newGoal !== null) ep.goal = newGoal.trim();
+      const newDl = prompt('마감일 (YYYY-MM-DD):', ep.deadline);
+      if (newDl !== null) ep.deadline = newDl.trim();
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-add-cat': {
+      const proj = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj) break;
+      const catName = prompt('대메뉴 이름:');
+      if (!catName || !catName.trim()) break;
+      if (!proj.categories) proj.categories = [];
+      proj.categories.push({ name: catName.trim(), subcategories: [] });
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-rename-cat': {
+      const catIdx = parseInt(el.dataset.cat);
+      const proj = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj || !proj.categories[catIdx]) break;
+      const newCatName = prompt('대메뉴 이름 변경:', proj.categories[catIdx].name);
+      if (newCatName && newCatName.trim()) {
+        proj.categories[catIdx].name = newCatName.trim();
+        saveKpiProjects();
+        render();
+      }
+      break;
+    }
+    case 'kpi-delete-cat': {
+      const catIdx2 = parseInt(el.dataset.cat);
+      const proj2 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj2 || !proj2.categories[catIdx2]) break;
+      if (confirm(`"${proj2.categories[catIdx2].name}" 대메뉴를 삭제하시겠습니까?`)) {
+        proj2.categories.splice(catIdx2, 1);
+        saveKpiProjects();
+        render();
+      }
+      break;
+    }
+    case 'kpi-add-subcat': {
+      const catIdx3 = parseInt(el.dataset.cat);
+      const proj3 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj3 || !proj3.categories[catIdx3]) break;
+      const scName = prompt('소메뉴 이름:');
+      if (!scName || !scName.trim()) break;
+      if (!proj3.categories[catIdx3].subcategories) proj3.categories[catIdx3].subcategories = [];
+      proj3.categories[catIdx3].subcategories.push({ name: scName.trim(), tasks: [] });
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-rename-subcat': {
+      const catIdx4 = parseInt(el.dataset.cat);
+      const scIdx = parseInt(el.dataset.subcat);
+      const proj4 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj4 || !proj4.categories[catIdx4]?.subcategories[scIdx]) break;
+      const newScName = prompt('소메뉴 이름 변경:', proj4.categories[catIdx4].subcategories[scIdx].name);
+      if (newScName && newScName.trim()) {
+        proj4.categories[catIdx4].subcategories[scIdx].name = newScName.trim();
+        saveKpiProjects();
+        render();
+      }
+      break;
+    }
+    case 'kpi-delete-subcat': {
+      const catIdx5 = parseInt(el.dataset.cat);
+      const scIdx2 = parseInt(el.dataset.subcat);
+      const proj5 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj5 || !proj5.categories[catIdx5]?.subcategories[scIdx2]) break;
+      if (confirm(`"${proj5.categories[catIdx5].subcategories[scIdx2].name}" 소메뉴를 삭제하시겠습니까?`)) {
+        proj5.categories[catIdx5].subcategories.splice(scIdx2, 1);
+        saveKpiProjects();
+        render();
+      }
+      break;
+    }
+    case 'kpi-add-task': {
+      const catIdx6 = parseInt(el.dataset.cat);
+      const scIdx3 = parseInt(el.dataset.subcat);
+      const proj6 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj6 || !proj6.categories[catIdx6]?.subcategories[scIdx3]) break;
+      const taskText = prompt('태스크 내용:');
+      if (!taskText || !taskText.trim()) break;
+      if (!proj6.categories[catIdx6].subcategories[scIdx3].tasks) proj6.categories[catIdx6].subcategories[scIdx3].tasks = [];
+      proj6.categories[catIdx6].subcategories[scIdx3].tasks.push({ text: taskText.trim(), done: false, createdAt: new Date().toISOString() });
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-toggle-task': {
+      const catIdx7 = parseInt(el.dataset.cat);
+      const scIdx4 = parseInt(el.dataset.subcat);
+      const tIdx = parseInt(el.dataset.task);
+      const proj7 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj7 || !proj7.categories[catIdx7]?.subcategories[scIdx4]?.tasks[tIdx]) break;
+      proj7.categories[catIdx7].subcategories[scIdx4].tasks[tIdx].done = !proj7.categories[catIdx7].subcategories[scIdx4].tasks[tIdx].done;
+      saveKpiProjects();
+      render();
+      break;
+    }
+    case 'kpi-delete-task': {
+      const catIdx8 = parseInt(el.dataset.cat);
+      const scIdx5 = parseInt(el.dataset.subcat);
+      const tIdx2 = parseInt(el.dataset.task);
+      const proj8 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
+      if (!proj8 || !proj8.categories[catIdx8]?.subcategories[scIdx5]?.tasks[tIdx2]) break;
+      proj8.categories[catIdx8].subcategories[scIdx5].tasks.splice(tIdx2, 1);
+      saveKpiProjects();
+      render();
+      break;
+    }
 
     // Clipboard actions
     case 'clip-add':
@@ -9239,6 +9687,11 @@ function handleAction(action, el) {
       }
       break;
     }
+
+    // Org chart view mode
+    case 'org-view-tree': orgViewMode = 'tree'; render(); break;
+    case 'org-view-list-name': orgViewMode = 'list-name'; render(); break;
+    case 'org-view-list-amount': orgViewMode = 'list-amount'; render(); break;
 
     // Org chart zoom/pan
     case 'org-zoom-in': {
@@ -10223,6 +10676,7 @@ async function init() {
   loadCustomMainnets();
   loadCustomTokens();
   loadCards();
+  loadKpiProjects();
   loadAiSettings();
 
   // Fetch interstitial ad and popup notice on app open
