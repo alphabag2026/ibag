@@ -179,7 +179,14 @@ let vaultOldPassword = '';
 let lifeItems = []; // { id, type:'photo'|'contact'|'address', title, description, imageData, phone, createdAt }
 let calcMode = 'currency'; // 'currency' | 'photo'
 let calcFrom = 'USD', calcTo = 'KRW', calcAmount = '';
-let calcTabMode = 'exchange'; // 'exchange' | 'fee'
+let calcTabMode = 'exchange'; // 'exchange' | 'fee' | 'general'
+
+// General Calculator state
+let generalCalcDisplay = '0';
+let generalCalcPrevValue = null;
+let generalCalcOperator = null;
+let generalCalcWaitingForOperand = false;
+let generalCalcMemory = 0;
 // Fee calculator state
 let feeCalcMode = 'forward'; // 'forward' = 금액→수수료 | 'reverse' = 목표금액→필요금액 | 'profit' = 수익계산
 let feePercent = ''; // 수수료 %
@@ -1458,8 +1465,8 @@ function renderHome() {
         <span>iBag</span>
       </div>
       <div class="action-btn" data-action="goto-calc">
-        <div class="action-icon" style="background:linear-gradient(135deg,#10b98115,#06b6d415)"><i class="ri-exchange-dollar-fill" style="color:#10b981"></i></div>
-        <span>USDT</span>
+        <div class="action-icon" style="background:linear-gradient(135deg,#10b98115,#06b6d415)"><i class="ri-calculator-line" style="color:#10b981"></i></div>
+        <span>${escapeHtml(t('action_calculator') || '계산기')}</span>
       </div>
       <div class="action-btn" data-action="goto-translate">
         <div class="action-icon" style="background:linear-gradient(135deg,#6366f115,#8b5cf615)"><i class="ri-translate-2" style="color:#6366f1"></i></div>
@@ -2751,13 +2758,26 @@ function renderCalculator() {
   const tabHtml = `
     <div class="calc-tab-bar">
       <button class="calc-tab-btn ${calcTabMode === 'exchange' ? 'active' : ''}" data-action="calc-tab-exchange">
-        <i class="ri-exchange-dollar-line"></i> ${escapeHtml(t('calc_tab_exchange') || '환율 계산기')}
+        <i class="ri-exchange-dollar-line"></i> USDT
       </button>
       <button class="calc-tab-btn ${calcTabMode === 'fee' ? 'active' : ''}" data-action="calc-tab-fee">
-        <i class="ri-percent-line"></i> ${escapeHtml(t('calc_tab_fee') || '수수료 계산기')}
+        <i class="ri-percent-line"></i> ${escapeHtml(t('calc_tab_fee') || '수수료')}
+      </button>
+      <button class="calc-tab-btn ${calcTabMode === 'general' ? 'active' : ''}" data-action="calc-tab-general">
+        <i class="ri-calculator-line"></i> ${escapeHtml(t('calc_tab_general') || '일반')}
       </button>
     </div>
   `;
+
+  if (calcTabMode === 'general') {
+    return `
+      <div class="sub-header"><button data-action="go-back"><i class="ri-arrow-left-line"></i></button><span>${escapeHtml(t('calc_title') || 'iBag 계산기')}</span></div>
+      <div class="calc-container">
+        ${tabHtml}
+        ${renderGeneralCalculator()}
+      </div>
+    `;
+  }
 
   if (calcTabMode === 'fee') {
     return `
@@ -4075,7 +4095,180 @@ function renderFeeCalculator() {
     </div>
     ${resultSection}
   `;
-}// ═════════════════════════════════════════════════════════════
+}
+
+// ═════════════════════════════════════════════════════════════
+// GENERAL CALCULATOR
+// ═════════════════════════════════════════════════════════════
+
+function generalCalcReset() {
+  generalCalcDisplay = '0';
+  generalCalcPrevValue = null;
+  generalCalcOperator = null;
+  generalCalcWaitingForOperand = false;
+}
+
+function generalCalcInputDigit(digit) {
+  if (generalCalcWaitingForOperand) {
+    generalCalcDisplay = digit;
+    generalCalcWaitingForOperand = false;
+  } else {
+    generalCalcDisplay = generalCalcDisplay === '0' ? digit : generalCalcDisplay + digit;
+  }
+}
+
+function generalCalcInputDot() {
+  if (generalCalcWaitingForOperand) {
+    generalCalcDisplay = '0.';
+    generalCalcWaitingForOperand = false;
+    return;
+  }
+  if (!generalCalcDisplay.includes('.')) {
+    generalCalcDisplay += '.';
+  }
+}
+
+function generalCalcToggleSign() {
+  const val = parseFloat(generalCalcDisplay);
+  if (val !== 0) {
+    generalCalcDisplay = (-val).toString();
+  }
+}
+
+function generalCalcPercent() {
+  const val = parseFloat(generalCalcDisplay);
+  if (generalCalcPrevValue !== null && generalCalcOperator) {
+    generalCalcDisplay = (generalCalcPrevValue * val / 100).toString();
+  } else {
+    generalCalcDisplay = (val / 100).toString();
+  }
+}
+
+function generalCalcPerformOperation(nextOp) {
+  const inputValue = parseFloat(generalCalcDisplay);
+  
+  if (generalCalcPrevValue === null) {
+    generalCalcPrevValue = inputValue;
+  } else if (generalCalcOperator) {
+    const result = generalCalcCalculate(generalCalcPrevValue, inputValue, generalCalcOperator);
+    generalCalcDisplay = String(result);
+    generalCalcPrevValue = result;
+  }
+  
+  generalCalcWaitingForOperand = true;
+  generalCalcOperator = nextOp;
+}
+
+function generalCalcCalculate(prev, next, op) {
+  switch (op) {
+    case '+': return prev + next;
+    case '-': return prev - next;
+    case '*': return prev * next;
+    case '/': return next !== 0 ? prev / next : 0;
+    default: return next;
+  }
+}
+
+function generalCalcEquals() {
+  if (generalCalcOperator === null || generalCalcPrevValue === null) return;
+  const inputValue = parseFloat(generalCalcDisplay);
+  const result = generalCalcCalculate(generalCalcPrevValue, inputValue, generalCalcOperator);
+  generalCalcDisplay = String(result);
+  generalCalcPrevValue = null;
+  generalCalcOperator = null;
+  generalCalcWaitingForOperand = true;
+}
+
+function generalCalcBackspace() {
+  if (generalCalcWaitingForOperand) return;
+  if (generalCalcDisplay.length > 1) {
+    generalCalcDisplay = generalCalcDisplay.slice(0, -1);
+  } else {
+    generalCalcDisplay = '0';
+  }
+}
+
+function generalCalcMemoryAdd() {
+  generalCalcMemory += parseFloat(generalCalcDisplay);
+}
+
+function generalCalcMemorySub() {
+  generalCalcMemory -= parseFloat(generalCalcDisplay);
+}
+
+function generalCalcMemoryRecall() {
+  generalCalcDisplay = String(generalCalcMemory);
+  generalCalcWaitingForOperand = true;
+}
+
+function generalCalcMemoryClear() {
+  generalCalcMemory = 0;
+}
+
+function formatCalcDisplay(val) {
+  if (val === 'Error') return 'Error';
+  const num = parseFloat(val);
+  if (isNaN(num)) return '0';
+  if (val.endsWith('.')) return val;
+  if (Number.isInteger(num) && !val.includes('.')) {
+    return num.toLocaleString();
+  }
+  const parts = val.split('.');
+  return parseFloat(parts[0]).toLocaleString() + '.' + (parts[1] || '');
+}
+
+function renderGeneralCalculator() {
+  const displayVal = formatCalcDisplay(generalCalcDisplay);
+  const opSymbol = generalCalcOperator ? ({'+':"+",'-':"\u2212",'*':"\u00d7",'/':"\u00f7"}[generalCalcOperator] || '') : '';
+  const prevDisplay = generalCalcPrevValue !== null ? `${parseFloat(generalCalcPrevValue).toLocaleString()} ${opSymbol}` : '';
+  const memIndicator = generalCalcMemory !== 0 ? '<span class="gc-mem-indicator">M</span>' : '';
+  
+  return `
+    <div class="general-calc">
+      <div class="gc-display">
+        <div class="gc-display-top">
+          ${memIndicator}
+          <span class="gc-prev-value">${prevDisplay}</span>
+        </div>
+        <div class="gc-display-main">${displayVal}</div>
+      </div>
+      <div class="gc-memory-row">
+        <button class="gc-mem-btn" data-action="gc-mc">MC</button>
+        <button class="gc-mem-btn" data-action="gc-mr">MR</button>
+        <button class="gc-mem-btn" data-action="gc-m-plus">M+</button>
+        <button class="gc-mem-btn" data-action="gc-m-minus">M-</button>
+      </div>
+      <div class="gc-buttons">
+        <button class="gc-btn gc-func" data-action="gc-clear">AC</button>
+        <button class="gc-btn gc-func" data-action="gc-toggle-sign">+/-</button>
+        <button class="gc-btn gc-func" data-action="gc-percent">%</button>
+        <button class="gc-btn gc-op ${generalCalcOperator === '/' ? 'active' : ''}" data-action="gc-op" data-op="/">\u00f7</button>
+        
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="7">7</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="8">8</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="9">9</button>
+        <button class="gc-btn gc-op ${generalCalcOperator === '*' ? 'active' : ''}" data-action="gc-op" data-op="*">\u00d7</button>
+        
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="4">4</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="5">5</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="6">6</button>
+        <button class="gc-btn gc-op ${generalCalcOperator === '-' ? 'active' : ''}" data-action="gc-op" data-op="-">\u2212</button>
+        
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="1">1</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="2">2</button>
+        <button class="gc-btn gc-num" data-action="gc-digit" data-digit="3">3</button>
+        <button class="gc-btn gc-op ${generalCalcOperator === '+' ? 'active' : ''}" data-action="gc-op" data-op="+">+</button>
+        
+        <button class="gc-btn gc-num gc-zero" data-action="gc-digit" data-digit="0">0</button>
+        <button class="gc-btn gc-num" data-action="gc-dot">.</button>
+        <button class="gc-btn gc-backspace" data-action="gc-backspace"><i class="ri-delete-back-2-line"></i></button>
+        <button class="gc-btn gc-equals" data-action="gc-equals">=</button>
+      </div>
+    </div>
+  `;
+}
+
+// ═════════════════════════════════════════════════════════════
 // AI CHAT SCREEN (Gemini)
 // ═════════════════════════════════════════════════════════════
 
@@ -6527,7 +6720,7 @@ function renderModal() {
       <div class="form-group"><label class="form-label">${escapeHtml(t('memo_content'))}</label><textarea class="form-textarea" id="m-content" rows="4">${escapeHtml(m.content || '')}</textarea></div>
       <div class="form-group"><label class="form-label">${escapeHtml(t('memo_link'))}</label><input class="form-input" id="m-link" value="${escapeHtml(m.link || '')}" placeholder="https://"></div>
       <div class="form-group"><label class="form-label">${escapeHtml(t('memo_tags'))}</label><input class="form-input" id="m-tags" value="${escapeHtml((m.tags || []).join(', '))}" placeholder="${escapeHtml(t('memo_tags_hint'))}"></div>
-      <div class="form-group" id="memo-paste-zone">
+      <div class="form-group" id="memo-paste-zone" tabindex="0" style="outline:none">
         <label class="form-label"><i class="ri-image-line"></i> ${escapeHtml(t('memo_image'))}</label>
         ${showImage ? `
           <div class="memo-image-preview"><img src="${imgSrc}" alt=""><button class="remove-img-btn" data-action="remove-memo-image"><i class="ri-close-line"></i></button></div>
@@ -7653,6 +7846,17 @@ function bindEvents() {
     pasteZone.addEventListener('dragover', (e) => { e.preventDefault(); pasteZone.classList.add('drag-over'); });
     pasteZone.addEventListener('dragleave', () => pasteZone.classList.remove('drag-over'));
     pasteZone.addEventListener('drop', handleMemoDrop);
+    // Global paste: when memo modal is open, Ctrl+V anywhere pastes image
+    document.addEventListener('paste', function _globalMemoPaste(e) {
+      const zone = document.getElementById('memo-paste-zone');
+      if (!zone) { document.removeEventListener('paste', _globalMemoPaste); return; }
+      // Only handle if not already handled by the zone itself
+      if (e.target && e.target.closest && e.target.closest('#memo-paste-zone')) return;
+      // Check if we're in a text input - don't intercept normal text paste
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      handleMemoPaste(e);
+    });
   }
 }
 
@@ -7714,6 +7918,21 @@ function handleAction(action, el) {
     // Calculator tabs
     case 'calc-tab-exchange': calcTabMode = 'exchange'; render(); break;
     case 'calc-tab-fee': calcTabMode = 'fee'; render(); break;
+    case 'calc-tab-general': calcTabMode = 'general'; render(); break;
+
+    // General Calculator actions
+    case 'gc-digit': generalCalcInputDigit(el.dataset.digit); render(); break;
+    case 'gc-dot': generalCalcInputDot(); render(); break;
+    case 'gc-op': generalCalcPerformOperation(el.dataset.op); render(); break;
+    case 'gc-equals': generalCalcEquals(); render(); break;
+    case 'gc-clear': generalCalcReset(); render(); break;
+    case 'gc-toggle-sign': generalCalcToggleSign(); render(); break;
+    case 'gc-percent': generalCalcPercent(); render(); break;
+    case 'gc-backspace': generalCalcBackspace(); render(); break;
+    case 'gc-mc': generalCalcMemoryClear(); render(); break;
+    case 'gc-mr': generalCalcMemoryRecall(); render(); break;
+    case 'gc-m-plus': generalCalcMemoryAdd(); render(); break;
+    case 'gc-m-minus': generalCalcMemorySub(); render(); break;
 
     // Fee calculator modes
     case 'fee-mode-forward': feeCalcMode = 'forward'; feeResult = null; render(); break;
