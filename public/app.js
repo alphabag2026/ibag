@@ -179,7 +179,47 @@ let vaultOldPassword = '';
 let lifeItems = []; // { id, type:'photo'|'contact'|'address', title, description, imageData, phone, createdAt }
 let calcMode = 'currency'; // 'currency' | 'photo'
 let calcFrom = 'USD', calcTo = 'KRW', calcAmount = '';
-let calcTabMode = 'exchange'; // 'exchange' | 'fee' | 'general'
+let calcTabMode = 'exchange'; // 'exchange' | 'fee' | 'general' | 'token'
+
+// Token Calculator state
+let tokenCalcMode = 'major'; // 'major' | 'contract'
+let tokenCalcSelectedToken = 'bitcoin';
+let tokenCalcAmount = '';
+let tokenCalcPrice = null;
+let tokenCalcLoading = false;
+let tokenCalcError = '';
+let tokenCalcContractAddress = '';
+let tokenCalcContractChain = 'ethereum';
+let tokenCalcContractName = '';
+let tokenCalcPriceCache = {}; // { tokenId: { price, timestamp } }
+const TOKEN_CACHE_TTL = 60000; // 1 minute cache
+
+const MAJOR_TOKENS = [
+  { id: 'bitcoin', symbol: 'BTC', name: 'Bitcoin', icon: '₿' },
+  { id: 'ethereum', symbol: 'ETH', name: 'Ethereum', icon: 'Ξ' },
+  { id: 'binancecoin', symbol: 'BNB', name: 'BNB', icon: 'B' },
+  { id: 'solana', symbol: 'SOL', name: 'Solana', icon: 'S' },
+  { id: 'ripple', symbol: 'XRP', name: 'XRP', icon: 'X' },
+  { id: 'cardano', symbol: 'ADA', name: 'Cardano', icon: 'A' },
+  { id: 'dogecoin', symbol: 'DOGE', name: 'Dogecoin', icon: 'D' },
+  { id: 'polkadot', symbol: 'DOT', name: 'Polkadot', icon: 'D' },
+  { id: 'tron', symbol: 'TRX', name: 'TRON', icon: 'T' },
+  { id: 'avalanche-2', symbol: 'AVAX', name: 'Avalanche', icon: 'A' },
+  { id: 'matic-network', symbol: 'POL', name: 'Polygon', icon: 'P' },
+  { id: 'chainlink', symbol: 'LINK', name: 'Chainlink', icon: 'L' },
+];
+
+const TOKEN_CHAINS = [
+  { id: 'ethereum', name: 'Ethereum (ERC-20)' },
+  { id: 'binance-smart-chain', name: 'BNB Chain (BEP-20)' },
+  { id: 'polygon-pos', name: 'Polygon' },
+  { id: 'avalanche', name: 'Avalanche (C-Chain)' },
+  { id: 'arbitrum-one', name: 'Arbitrum' },
+  { id: 'optimistic-ethereum', name: 'Optimism' },
+  { id: 'base', name: 'Base' },
+  { id: 'solana', name: 'Solana' },
+  { id: 'tron', name: 'TRON (TRC-20)' },
+];
 
 // General Calculator state
 let generalCalcDisplay = '0';
@@ -2877,8 +2917,21 @@ function renderCalculator() {
       <button class="calc-tab-btn ${calcTabMode === 'general' ? 'active' : ''}" data-action="calc-tab-general">
         <i class="ri-calculator-line"></i> ${escapeHtml(t('calc_tab_general') || '일반')}
       </button>
+      <button class="calc-tab-btn ${calcTabMode === 'token' ? 'active' : ''}" data-action="calc-tab-token">
+        <i class="ri-coin-line"></i> ${escapeHtml(t('calc_tab_token') || '토큰')}
+      </button>
     </div>
   `;
+
+  if (calcTabMode === 'token') {
+    return `
+      <div class="sub-header"><button data-action="go-back"><i class="ri-arrow-left-line"></i></button><span>${escapeHtml(t('calc_tab_token') || '토큰 계산기')}</span></div>
+      <div class="calc-container">
+        ${tabHtml}
+        ${renderTokenCalculator()}
+      </div>
+    `;
+  }
 
   if (calcTabMode === 'general') {
     return `
@@ -4035,6 +4088,168 @@ function fmtBigNum2(n) {
   return n.toFixed(2);
 }
 
+
+// ─── Token Calculator ───
+async function fetchTokenPrice(tokenId) {
+  const cached = tokenCalcPriceCache[tokenId];
+  if (cached && Date.now() - cached.timestamp < TOKEN_CACHE_TTL) {
+    return cached.price;
+  }
+  const resp = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${tokenId}&vs_currencies=usd`);
+  if (!resp.ok) throw new Error('API error');
+  const data = await resp.json();
+  const price = data[tokenId]?.usd;
+  if (price == null) throw new Error('Token not found');
+  tokenCalcPriceCache[tokenId] = { price, timestamp: Date.now() };
+  return price;
+}
+
+async function fetchContractTokenPrice(chain, address) {
+  const cacheKey = `${chain}:${address}`;
+  const cached = tokenCalcPriceCache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < TOKEN_CACHE_TTL) {
+    return cached;
+  }
+  const resp = await fetch(`https://api.coingecko.com/api/v3/simple/token_price/${chain}?contract_addresses=${address}&vs_currencies=usd`);
+  if (!resp.ok) throw new Error('API error');
+  const data = await resp.json();
+  const addrLower = address.toLowerCase();
+  const entry = data[addrLower] || data[address];
+  if (!entry || entry.usd == null) throw new Error('Token not found on this chain');
+  const result = { price: entry.usd, timestamp: Date.now() };
+  tokenCalcPriceCache[cacheKey] = result;
+  return result;
+}
+
+async function loadTokenPrice() {
+  tokenCalcLoading = true;
+  tokenCalcError = '';
+  render();
+  try {
+    if (tokenCalcMode === 'major') {
+      tokenCalcPrice = await fetchTokenPrice(tokenCalcSelectedToken);
+    } else {
+      if (!tokenCalcContractAddress.trim()) {
+        tokenCalcError = t('token_enter_contract') || 'Enter contract address';
+        tokenCalcLoading = false;
+        render();
+        return;
+      }
+      const result = await fetchContractTokenPrice(tokenCalcContractChain, tokenCalcContractAddress.trim());
+      tokenCalcPrice = result.price;
+    }
+    tokenCalcLoading = false;
+    render();
+  } catch (e) {
+    tokenCalcError = e.message || 'Error';
+    tokenCalcPrice = null;
+    tokenCalcLoading = false;
+    render();
+  }
+}
+
+function renderTokenCalculator() {
+  // Mode toggle: major / contract
+  const modeToggle = `
+    <div class="token-mode-toggle">
+      <button class="token-mode-btn ${tokenCalcMode === 'major' ? 'active' : ''}" data-action="token-mode-major">
+        <i class="ri-star-line"></i> ${escapeHtml(t('token_major') || 'Major')}
+      </button>
+      <button class="token-mode-btn ${tokenCalcMode === 'contract' ? 'active' : ''}" data-action="token-mode-contract">
+        <i class="ri-file-code-line"></i> ${escapeHtml(t('token_contract') || 'Contract')}
+      </button>
+    </div>
+  `;
+
+  let selectorHtml = '';
+  let tokenSymbol = '';
+  let tokenName = '';
+
+  if (tokenCalcMode === 'major') {
+    const selectedInfo = MAJOR_TOKENS.find(t => t.id === tokenCalcSelectedToken) || MAJOR_TOKENS[0];
+    tokenSymbol = selectedInfo.symbol;
+    tokenName = selectedInfo.name;
+    selectorHtml = `
+      <div class="token-selector">
+        <label>${escapeHtml(t('token_select') || 'Select Token')}</label>
+        <select class="token-select" data-action="token-select-change">
+          ${MAJOR_TOKENS.map(tk => `<option value="${tk.id}" ${tokenCalcSelectedToken === tk.id ? 'selected' : ''}>${tk.icon} ${tk.symbol} - ${tk.name}</option>`).join('')}
+        </select>
+      </div>
+    `;
+  } else {
+    tokenSymbol = tokenCalcContractName || 'TOKEN';
+    tokenName = tokenCalcContractAddress ? (tokenCalcContractAddress.slice(0,6) + '...' + tokenCalcContractAddress.slice(-4)) : '';
+    selectorHtml = `
+      <div class="token-contract-input">
+        <label>${escapeHtml(t('token_chain') || 'Chain')}</label>
+        <select class="token-select" data-action="token-chain-change">
+          ${TOKEN_CHAINS.map(ch => `<option value="${ch.id}" ${tokenCalcContractChain === ch.id ? 'selected' : ''}>${ch.name}</option>`).join('')}
+        </select>
+        <label style="margin-top:8px">${escapeHtml(t('token_contract_addr') || 'Contract Address')}</label>
+        <input type="text" class="token-contract-field" placeholder="0x..." value="${escapeHtml(tokenCalcContractAddress)}" data-action="token-contract-input" />
+        <button class="token-search-btn" data-action="token-search-contract">
+          <i class="ri-search-line"></i> ${escapeHtml(t('token_search') || 'Search')}
+        </button>
+      </div>
+    `;
+  }
+
+  // Price display
+  let priceHtml = '';
+  if (tokenCalcLoading) {
+    priceHtml = `<div class="token-price-display loading"><i class="ri-loader-4-line ri-spin"></i> ${escapeHtml(t('token_loading') || 'Loading...')}</div>`;
+  } else if (tokenCalcError) {
+    priceHtml = `<div class="token-price-display error"><i class="ri-error-warning-line"></i> ${escapeHtml(tokenCalcError)}</div>`;
+  } else if (tokenCalcPrice !== null) {
+    const formattedPrice = tokenCalcPrice >= 1 ? tokenCalcPrice.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : tokenCalcPrice.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:8});
+    priceHtml = `
+      <div class="token-price-display">
+        <div class="token-price-label">${escapeHtml(tokenCalcMode === 'major' ? tokenName : (tokenCalcContractName || 'Token'))} ${escapeHtml(t('token_current_price') || 'Price')}</div>
+        <div class="token-price-value">$${formattedPrice}</div>
+      </div>
+    `;
+  }
+
+  // Amount input & result
+  let calcResultHtml = '';
+  if (tokenCalcPrice !== null) {
+    const amount = parseFloat(tokenCalcAmount) || 0;
+    const totalUsd = amount * tokenCalcPrice;
+    const sym = tokenCalcMode === 'major' ? tokenSymbol : (tokenCalcContractName || 'TOKEN');
+    calcResultHtml = `
+      <div class="token-calc-section">
+        <label>${escapeHtml(t('token_amount') || 'Amount')}</label>
+        <div class="token-amount-row">
+          <input type="number" class="token-amount-input" placeholder="0" value="${escapeHtml(tokenCalcAmount)}" data-action="token-amount-input" inputmode="decimal" />
+          <span class="token-amount-symbol">${escapeHtml(sym)}</span>
+        </div>
+        <div class="token-result">
+          <div class="token-result-label">${escapeHtml(t('token_total_value') || 'Total Value')}</div>
+          <div class="token-result-value">$${totalUsd.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+          <div class="token-result-words" style="${totalUsd > 0 ? '' : 'display:none'}">${totalUsd > 0 ? numberToLocalWords(totalUsd, state.language || 'ko', 'USD') : ''}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Refresh button
+  const refreshBtn = tokenCalcPrice !== null || tokenCalcMode === 'major' ? `
+    <button class="token-refresh-btn" data-action="token-refresh">
+      <i class="ri-refresh-line"></i> ${escapeHtml(t('token_refresh') || 'Refresh Price')}
+    </button>
+  ` : '';
+
+  return `
+    <div class="token-calculator">
+      ${modeToggle}
+      ${selectorHtml}
+      ${refreshBtn}
+      ${priceHtml}
+      ${calcResultHtml}
+    </div>
+  `;
+}
 
 function renderFeeCalculator() {
   // Mode selector
@@ -8469,6 +8684,32 @@ function bindEvents() {
     });
   }
 
+  // ─── Token Calculator inputs ───
+  const tokenSelectEl = document.querySelector('[data-action="token-select-change"]');
+  if (tokenSelectEl) tokenSelectEl.addEventListener('change', (e) => { tokenCalcSelectedToken = e.target.value; tokenCalcPrice = null; tokenCalcAmount = ''; loadTokenPrice(); });
+  const tokenChainEl = document.querySelector('[data-action="token-chain-change"]');
+  if (tokenChainEl) tokenChainEl.addEventListener('change', (e) => { tokenCalcContractChain = e.target.value; });
+  const tokenContractEl = document.querySelector('[data-action="token-contract-input"]');
+  if (tokenContractEl) tokenContractEl.addEventListener('input', (e) => { tokenCalcContractAddress = e.target.value; });
+  const tokenAmountEl = document.querySelector('[data-action="token-amount-input"]');
+  if (tokenAmountEl) tokenAmountEl.addEventListener('input', (e) => {
+    tokenCalcAmount = e.target.value;
+    const amt = parseFloat(tokenCalcAmount) || 0;
+    const total = amt * (tokenCalcPrice || 0);
+    const valEl = document.querySelector('.token-result-value');
+    if (valEl) valEl.textContent = '$' + total.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    const wordsEl = document.querySelector('.token-result-words');
+    if (wordsEl) {
+      if (total > 0) {
+        wordsEl.textContent = numberToLocalWords(total, (typeof state !== 'undefined' && state.language) || 'ko', 'USD');
+        wordsEl.style.display = '';
+      } else {
+        wordsEl.textContent = '';
+        wordsEl.style.display = 'none';
+      }
+    }
+  });
+
   // ─── Translate inputs ───
   const transFromEl = document.querySelector('[data-translate-from]');
   if (transFromEl) transFromEl.addEventListener('change', (e) => { translateFrom = e.target.value; });
@@ -8636,6 +8877,63 @@ function handleAction(action, el) {
     case 'calc-tab-exchange': calcTabMode = 'exchange'; render(); break;
     case 'calc-tab-fee': calcTabMode = 'fee'; render(); break;
     case 'calc-tab-general': calcTabMode = 'general'; render(); break;
+    case 'calc-tab-token': calcTabMode = 'token'; loadTokenPrice(); break;
+
+    // Token Calculator actions
+    case 'token-mode-major':
+      tokenCalcMode = 'major';
+      tokenCalcPrice = null;
+      tokenCalcAmount = '';
+      tokenCalcError = '';
+      loadTokenPrice();
+      break;
+    case 'token-mode-contract':
+      tokenCalcMode = 'contract';
+      tokenCalcPrice = null;
+      tokenCalcAmount = '';
+      tokenCalcError = '';
+      render();
+      break;
+    case 'token-select-change':
+      tokenCalcSelectedToken = el.value;
+      tokenCalcPrice = null;
+      tokenCalcAmount = '';
+      loadTokenPrice();
+      break;
+    case 'token-chain-change':
+      tokenCalcContractChain = el.value;
+      break;
+    case 'token-contract-input':
+      tokenCalcContractAddress = el.value;
+      break;
+    case 'token-search-contract':
+      tokenCalcContractName = '';
+      loadTokenPrice();
+      break;
+    case 'token-amount-input':
+      tokenCalcAmount = el.value;
+      // Don't call render() - update DOM directly to avoid input reset
+      {
+        const amt = parseFloat(tokenCalcAmount) || 0;
+        const total = amt * (tokenCalcPrice || 0);
+        const valEl = document.querySelector('.token-result-value');
+        if (valEl) valEl.textContent = '$' + total.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        const wordsEl = document.querySelector('.token-result-words');
+        if (wordsEl) {
+          if (total > 0) {
+            wordsEl.textContent = numberToLocalWords(total, (typeof state !== 'undefined' && state.language) || 'ko', 'USD');
+            wordsEl.style.display = '';
+          } else {
+            wordsEl.textContent = '';
+            wordsEl.style.display = 'none';
+          }
+        }
+      }
+      break;
+    case 'token-refresh':
+      tokenCalcPriceCache = {};
+      loadTokenPrice();
+      break;
 
     // General Calculator actions
     case 'gc-digit': generalCalcInputDigit(el.dataset.digit); render(); break;

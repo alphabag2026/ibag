@@ -5623,3 +5623,203 @@ input, textarea, select {
   background: rgba(239,68,68,0.1);
   color: #ef4444;
 }
+
+/* ─── Token Calculator ─── */
+.token-calculator {
+  padding: 12px 0;
+}
+.token-mode-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.token-mode-btn {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid var(--bg-input-border);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+.token-mode-btn.active {
+  background: var(--primary-dim);
+  color: var(--primary);
+  border-color: var(--primary-border);
+}
+.token-selector, .token-contract-input {
+  margin-bottom: 12px;
+}
+.token-selector label, .token-contract-input label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.token-select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--bg-input-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+}
+.token-select:focus {
+  border-color: var(--primary);
+}
+.token-contract-field {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--bg-input-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: monospace;
+  outline: none;
+  box-sizing: border-box;
+}
+.token-contract-field:focus {
+  border-color: var(--primary);
+}
+.token-search-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--primary);
+  color: #000;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.token-search-btn:active {
+  opacity: 0.8;
+}
+.token-refresh-btn {
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--primary-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.token-refresh-btn:active {
+  background: var(--primary-dim);
+}
+.token-price-display {
+  background: var(--bg-card);
+  border: 1px solid var(--bg-card-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.token-price-display.loading {
+  color: var(--primary);
+  font-size: 14px;
+}
+.token-price-display.error {
+  color: var(--danger);
+  font-size: 13px;
+}
+.token-price-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.token-price-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--primary);
+}
+.token-calc-section {
+  background: var(--bg-card);
+  border: 1px solid var(--bg-card-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+.token-calc-section label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.token-amount-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.token-amount-input {
+  flex: 1;
+  padding: 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--bg-input-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 600;
+  outline: none;
+}
+.token-amount-input:focus {
+  border-color: var(--primary);
+}
+.token-amount-symbol {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary);
+  min-width: 50px;
+  text-align: center;
+}
+.token-result {
+  text-align: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--bg-input-border);
+}
+.token-result-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.token-result-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--success);
+}
+.token-result-words {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  font-style: italic;
+}
+.ri-spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
