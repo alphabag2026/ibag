@@ -8912,7 +8912,23 @@ function handleAction(action, el) {
       break;
     case 'token-amount-input':
       tokenCalcAmount = el.value;
-      render();
+      // Don't call render() - update DOM directly to avoid input reset
+      {
+        const amt = parseFloat(tokenCalcAmount) || 0;
+        const total = amt * (tokenCalcPrice || 0);
+        const valEl = document.querySelector('.token-result-value');
+        if (valEl) valEl.textContent = '$' + total.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        const wordsEl = document.querySelector('.token-result-words');
+        if (wordsEl) {
+          if (total > 0) {
+            wordsEl.textContent = numberToLocalWords(total, (typeof state !== 'undefined' && state.language) || 'ko', 'USD');
+            wordsEl.style.display = '';
+          } else {
+            wordsEl.textContent = '';
+            wordsEl.style.display = 'none';
+          }
+        }
+      }
       break;
     case 'token-refresh':
       tokenCalcPriceCache = {};
