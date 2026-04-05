@@ -317,9 +317,33 @@ let kpiProjects = [];
 let kpiSelectedProjectId = null;
 let kpiSelectedCategoryId = null;
 let kpiSelectedSubcategoryId = null;
+let kpiModalCallback = null; // callback for KPI custom prompt modal
+let kpiModalFields = []; // [{label, id, value, placeholder, type}]
+let kpiModalTitle = '';
+let kpiConfirmCallback = null; // callback for KPI custom confirm modal
+let kpiConfirmMessage = '';
 
 function saveKpiProjects() { try { localStorage.setItem('ibag_kpi_projects', JSON.stringify(kpiProjects)); } catch(e) {} }
 function loadKpiProjects() { try { const d = localStorage.getItem('ibag_kpi_projects'); if (d) kpiProjects = JSON.parse(d); } catch(e) {} }
+
+// KPI custom prompt/confirm (replaces native prompt/confirm for Electron compatibility)
+function showKpiPrompt(title, fields, callback) {
+  kpiModalTitle = title;
+  kpiModalFields = fields;
+  kpiModalCallback = callback;
+  showModal = true;
+  modalType = 'kpi-prompt';
+  render();
+  // Auto-focus first field
+  setTimeout(() => { const first = document.getElementById(fields[0]?.id); if (first) first.focus(); }, 100);
+}
+function showKpiConfirm(message, callback) {
+  kpiConfirmMessage = message;
+  kpiConfirmCallback = callback;
+  showModal = true;
+  modalType = 'kpi-confirm';
+  render();
+}
 
 // Card state
 let cardScreen = 'main'; // 'main' | 'apply' | 'apply-design' | 'apply-form' | 'detail'
@@ -7558,9 +7582,30 @@ function renderModal() {
       </div>
       <div class="btn-row"><button class="btn btn-primary" data-modal-close style="width:100%">${escapeHtml(t('set_confirm') || 'OK')}</button></div>
     `;
+  } else if (modalType === 'kpi-prompt') {
+    title = kpiModalTitle || 'Input';
+    body = `
+      ${kpiModalFields.map(f => `
+        <div class="form-group"><label class="form-label">${escapeHtml(f.label)}</label>
+          <input class="form-input" id="${f.id}" value="${escapeHtml(f.value || '')}" placeholder="${escapeHtml(f.placeholder || '')}" ${f.type === 'date' ? 'type="date"' : ''} ${f.autofocus ? 'autofocus' : ''}></div>
+      `).join('')}
+      <div class="btn-row">
+        <button class="btn btn-outline" data-modal-close>취소</button>
+        <button class="btn btn-primary" data-modal-save="kpi-prompt">확인</button>
+      </div>
+    `;
+  } else if (modalType === 'kpi-confirm') {
+    title = '확인';
+    body = `
+      <div style="padding:12px 0;color:var(--text-secondary);font-size:14px">${escapeHtml(kpiConfirmMessage)}</div>
+      <div class="btn-row">
+        <button class="btn btn-outline" data-modal-close>취소</button>
+        <button class="btn btn-primary" data-modal-save="kpi-confirm" style="background:#ef4444">삭제</button>
+      </div>
+    `;
   }
 
-  const centerClass = (modalType === 'private-pin' || modalType === 'security-explain') ? ' modal-center' : '';
+  const centerClass = (modalType === 'private-pin' || modalType === 'security-explain' || modalType === 'kpi-prompt' || modalType === 'kpi-confirm') ? ' modal-center' : '';
   return `
     <div class="modal-overlay${centerClass}" data-modal-overlay>
       <div class="modal" onclick="event.stopPropagation()" id="modal-inner">
@@ -8911,30 +8956,34 @@ function handleAction(action, el) {
 
     // KPI / WBS actions
     case 'kpi-add-project': {
-      const name = prompt('프로젝트 이름:');
-      if (!name || !name.trim()) break;
-      const goal = prompt('목표 (선택):') || '';
-      const deadline = prompt('마감일 (YYYY-MM-DD, 선택):') || '';
-      const newProj = {
-        id: 'kpi_' + Date.now(),
-        name: name.trim(),
-        goal: goal.trim(),
-        deadline: deadline.trim(),
-        categories: [],
-        createdAt: new Date().toISOString()
-      };
-      kpiProjects.push(newProj);
-      saveKpiProjects();
-      render();
+      showKpiPrompt('프로젝트 추가', [
+        { label: '프로젝트 이름', id: 'kpi-f-name', value: '', placeholder: '프로젝트 이름 입력', autofocus: true },
+        { label: '목표 (선택)', id: 'kpi-f-goal', value: '', placeholder: '목표를 입력하세요' },
+        { label: '마감일 (선택)', id: 'kpi-f-deadline', value: '', placeholder: 'YYYY-MM-DD', type: 'date' }
+      ], (vals) => {
+        const name = vals['kpi-f-name'];
+        if (!name || !name.trim()) return;
+        const newProj = {
+          id: 'kpi_' + Date.now(),
+          name: name.trim(),
+          goal: (vals['kpi-f-goal'] || '').trim(),
+          deadline: (vals['kpi-f-deadline'] || '').trim(),
+          categories: [],
+          createdAt: new Date().toISOString()
+        };
+        kpiProjects.push(newProj);
+        saveKpiProjects();
+        render();
+      });
       break;
     }
     case 'kpi-delete-project': {
       const projId = el.dataset.kpiId;
-      if (confirm('이 프로젝트를 삭제하시겠습니까?')) {
+      showKpiConfirm('이 프로젝트를 삭제하시겠습니까?', () => {
         kpiProjects = kpiProjects.filter(p => p.id !== projId);
         saveKpiProjects();
         render();
-      }
+      });
       break;
     }
     case 'kpi-open-project': {
@@ -8952,60 +9001,76 @@ function handleAction(action, el) {
       const epId = el.dataset.kpiId;
       const ep = kpiProjects.find(p => p.id === epId);
       if (!ep) break;
-      const newName = prompt('프로젝트 이름:', ep.name);
-      if (newName && newName.trim()) ep.name = newName.trim();
-      const newGoal = prompt('목표:', ep.goal);
-      if (newGoal !== null) ep.goal = newGoal.trim();
-      const newDl = prompt('마감일 (YYYY-MM-DD):', ep.deadline);
-      if (newDl !== null) ep.deadline = newDl.trim();
-      saveKpiProjects();
-      render();
+      showKpiPrompt('프로젝트 편집', [
+        { label: '프로젝트 이름', id: 'kpi-f-name', value: ep.name, autofocus: true },
+        { label: '목표', id: 'kpi-f-goal', value: ep.goal || '' },
+        { label: '마감일', id: 'kpi-f-deadline', value: ep.deadline || '', type: 'date' }
+      ], (vals) => {
+        const newName = vals['kpi-f-name'];
+        if (newName && newName.trim()) ep.name = newName.trim();
+        ep.goal = (vals['kpi-f-goal'] || '').trim();
+        ep.deadline = (vals['kpi-f-deadline'] || '').trim();
+        saveKpiProjects();
+        render();
+      });
       break;
     }
     case 'kpi-add-cat': {
       const proj = kpiProjects.find(p => p.id === kpiSelectedProjectId);
       if (!proj) break;
-      const catName = prompt('대메뉴 이름:');
-      if (!catName || !catName.trim()) break;
-      if (!proj.categories) proj.categories = [];
-      proj.categories.push({ name: catName.trim(), subcategories: [] });
-      saveKpiProjects();
-      render();
+      showKpiPrompt('대메뉴 추가', [
+        { label: '대메뉴 이름', id: 'kpi-f-cat', value: '', placeholder: '대메뉴 이름 입력', autofocus: true }
+      ], (vals) => {
+        const catName = vals['kpi-f-cat'];
+        if (!catName || !catName.trim()) return;
+        if (!proj.categories) proj.categories = [];
+        proj.categories.push({ name: catName.trim(), subcategories: [] });
+        saveKpiProjects();
+        render();
+      });
       break;
     }
     case 'kpi-rename-cat': {
       const catIdx = parseInt(el.dataset.cat);
       const proj = kpiProjects.find(p => p.id === kpiSelectedProjectId);
       if (!proj || !proj.categories[catIdx]) break;
-      const newCatName = prompt('대메뉴 이름 변경:', proj.categories[catIdx].name);
-      if (newCatName && newCatName.trim()) {
-        proj.categories[catIdx].name = newCatName.trim();
-        saveKpiProjects();
-        render();
-      }
+      showKpiPrompt('대메뉴 이름 변경', [
+        { label: '대메뉴 이름', id: 'kpi-f-cat', value: proj.categories[catIdx].name, autofocus: true }
+      ], (vals) => {
+        const newCatName = vals['kpi-f-cat'];
+        if (newCatName && newCatName.trim()) {
+          proj.categories[catIdx].name = newCatName.trim();
+          saveKpiProjects();
+          render();
+        }
+      });
       break;
     }
     case 'kpi-delete-cat': {
       const catIdx2 = parseInt(el.dataset.cat);
       const proj2 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
       if (!proj2 || !proj2.categories[catIdx2]) break;
-      if (confirm(`"${proj2.categories[catIdx2].name}" 대메뉴를 삭제하시겠습니까?`)) {
+      showKpiConfirm(`"${proj2.categories[catIdx2].name}" 대메뉴를 삭제하시겠습니까?`, () => {
         proj2.categories.splice(catIdx2, 1);
         saveKpiProjects();
         render();
-      }
+      });
       break;
     }
     case 'kpi-add-subcat': {
       const catIdx3 = parseInt(el.dataset.cat);
       const proj3 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
       if (!proj3 || !proj3.categories[catIdx3]) break;
-      const scName = prompt('소메뉴 이름:');
-      if (!scName || !scName.trim()) break;
-      if (!proj3.categories[catIdx3].subcategories) proj3.categories[catIdx3].subcategories = [];
-      proj3.categories[catIdx3].subcategories.push({ name: scName.trim(), tasks: [] });
-      saveKpiProjects();
-      render();
+      showKpiPrompt('소메뉴 추가', [
+        { label: '소메뉴 이름', id: 'kpi-f-sc', value: '', placeholder: '소메뉴 이름 입력', autofocus: true }
+      ], (vals) => {
+        const scName = vals['kpi-f-sc'];
+        if (!scName || !scName.trim()) return;
+        if (!proj3.categories[catIdx3].subcategories) proj3.categories[catIdx3].subcategories = [];
+        proj3.categories[catIdx3].subcategories.push({ name: scName.trim(), tasks: [] });
+        saveKpiProjects();
+        render();
+      });
       break;
     }
     case 'kpi-rename-subcat': {
@@ -9013,12 +9078,16 @@ function handleAction(action, el) {
       const scIdx = parseInt(el.dataset.subcat);
       const proj4 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
       if (!proj4 || !proj4.categories[catIdx4]?.subcategories[scIdx]) break;
-      const newScName = prompt('소메뉴 이름 변경:', proj4.categories[catIdx4].subcategories[scIdx].name);
-      if (newScName && newScName.trim()) {
-        proj4.categories[catIdx4].subcategories[scIdx].name = newScName.trim();
-        saveKpiProjects();
-        render();
-      }
+      showKpiPrompt('소메뉴 이름 변경', [
+        { label: '소메뉴 이름', id: 'kpi-f-sc', value: proj4.categories[catIdx4].subcategories[scIdx].name, autofocus: true }
+      ], (vals) => {
+        const newScName = vals['kpi-f-sc'];
+        if (newScName && newScName.trim()) {
+          proj4.categories[catIdx4].subcategories[scIdx].name = newScName.trim();
+          saveKpiProjects();
+          render();
+        }
+      });
       break;
     }
     case 'kpi-delete-subcat': {
@@ -9026,11 +9095,11 @@ function handleAction(action, el) {
       const scIdx2 = parseInt(el.dataset.subcat);
       const proj5 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
       if (!proj5 || !proj5.categories[catIdx5]?.subcategories[scIdx2]) break;
-      if (confirm(`"${proj5.categories[catIdx5].subcategories[scIdx2].name}" 소메뉴를 삭제하시겠습니까?`)) {
+      showKpiConfirm(`"${proj5.categories[catIdx5].subcategories[scIdx2].name}" 소메뉴를 삭제하시겠습니까?`, () => {
         proj5.categories[catIdx5].subcategories.splice(scIdx2, 1);
         saveKpiProjects();
         render();
-      }
+      });
       break;
     }
     case 'kpi-add-task': {
@@ -9038,12 +9107,16 @@ function handleAction(action, el) {
       const scIdx3 = parseInt(el.dataset.subcat);
       const proj6 = kpiProjects.find(p => p.id === kpiSelectedProjectId);
       if (!proj6 || !proj6.categories[catIdx6]?.subcategories[scIdx3]) break;
-      const taskText = prompt('태스크 내용:');
-      if (!taskText || !taskText.trim()) break;
-      if (!proj6.categories[catIdx6].subcategories[scIdx3].tasks) proj6.categories[catIdx6].subcategories[scIdx3].tasks = [];
-      proj6.categories[catIdx6].subcategories[scIdx3].tasks.push({ text: taskText.trim(), done: false, createdAt: new Date().toISOString() });
-      saveKpiProjects();
-      render();
+      showKpiPrompt('태스크 추가', [
+        { label: '태스크 내용', id: 'kpi-f-task', value: '', placeholder: '태스크 내용 입력', autofocus: true }
+      ], (vals) => {
+        const taskText = vals['kpi-f-task'];
+        if (!taskText || !taskText.trim()) return;
+        if (!proj6.categories[catIdx6].subcategories[scIdx3].tasks) proj6.categories[catIdx6].subcategories[scIdx3].tasks = [];
+        proj6.categories[catIdx6].subcategories[scIdx3].tasks.push({ text: taskText.trim(), done: false, createdAt: new Date().toISOString() });
+        saveKpiProjects();
+        render();
+      });
       break;
     }
     case 'kpi-toggle-task': {
@@ -10460,6 +10533,24 @@ function handleModalSave(type) {
     clipboardTempImage = null;
     clipboardEditingItem = null;
     saveClipboardItems(); closeModal(); render();
+  } else if (type === 'kpi-prompt') {
+    // Collect values from modal fields
+    const values = {};
+    kpiModalFields.forEach(f => {
+      values[f.id] = document.getElementById(f.id)?.value || '';
+    });
+    const cb = kpiModalCallback;
+    kpiModalCallback = null;
+    kpiModalFields = [];
+    kpiModalTitle = '';
+    closeModal();
+    if (cb) cb(values);
+  } else if (type === 'kpi-confirm') {
+    const cb = kpiConfirmCallback;
+    kpiConfirmCallback = null;
+    kpiConfirmMessage = '';
+    closeModal();
+    if (cb) cb(true);
   }
 }
 
