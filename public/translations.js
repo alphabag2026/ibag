@@ -316,6 +316,7 @@ const translations = {
 
     // v3.0 새 키
     action_bookmark: '북마크',
+    action_calculator: '계산기',
     action_calc: '계산',
     action_translate: '번역',
     bm_confirm_delete: '삭제하시겠습니까?',
@@ -1081,6 +1082,7 @@ const translations = {
     security_max: 'MAX SECURITY',
 
     action_bookmark: 'Bookmark',
+    action_calculator: 'Calculator',
     action_calc: 'Calc',
     action_translate: 'Translate',
     bm_confirm_delete: 'Delete this item?',
@@ -1842,6 +1844,7 @@ const translations = {
     security_max: '最高安全',
 
     action_bookmark: '书签',
+    action_calculator: '计算器',
     action_calc: '计算',
     action_translate: '翻译',
     bm_confirm_delete: '确定删除？',
@@ -2602,6 +2605,7 @@ const translations = {
     security_max: '最高セキュリティ',
 
     action_bookmark: 'ブックマーク',
+    action_calculator: '電卓',
     action_calc: '計算',
     action_translate: '翻訳',
     bm_confirm_delete: '削除しますか？',
@@ -3362,6 +3366,7 @@ const translations = {
     security_max: 'ความปลอดภัยสูงสุด',
 
     action_bookmark: 'บุ๊กมาร์ก',
+    action_calculator: 'เครื่องคิดเลข',
     action_calc: 'คำนวณ',
     action_translate: 'แปล',
     bm_confirm_delete: 'ลบหรือไม่?',
@@ -4111,6 +4116,7 @@ const translations = {
     security_max: 'BẢO MẬT TỐI ĐA',
 
     action_bookmark: 'Dấu trang',
+    action_calculator: 'Máy tính',
     action_calc: 'Tính',
     action_translate: 'Dịch',
     bm_confirm_delete: 'Xóa mục này?',
@@ -4860,6 +4866,7 @@ const translations = {
     security_max: 'МАКС. БЕЗОПАСНОСТЬ',
 
     action_bookmark: 'Закладки',
+    action_calculator: 'Калькулятор',
     action_calc: 'Калькулятор',
     action_translate: 'Перевод',
     bm_confirm_delete: 'Удалить этот элемент?',
