@@ -6,9 +6,9 @@ const API_BASE = window.location.origin;
 const IS_ELECTRON = !!(window.electronAPI && window.electronAPI.isElectron);
 
 // ─── App Version & OTA Update ───
-const APP_VERSION = '5.3.4';
-const APP_VERSION_CODE = 534;
-const UPDATE_CHECK_URL = 'https://xplayvault-foftd3kr.manus.space/api/ibag-update';
+const APP_VERSION = '5.3.6';
+const APP_VERSION_CODE = 536;
+const UPDATE_CHECK_URL = 'https://ibag.live/api/ibag-update';
 let updateInfo = null; // { version, versionCode, downloadUrl, changelog, forceUpdate }
 let updateCheckState = 'idle'; // idle, checking, available, latest, error, downloading
 let isPinned = false; // Always on Top state
@@ -237,6 +237,9 @@ let feeTokenSymbol = 'USDT'; // 토큰 심볼
 let feeResult = null; // 계산 결과
 // USDT Exchange Calculator state
 let usdtKrwPrice = 0; // Bithumb USDT/KRW price
+let usdtBidPrice = 0; // Bithumb USDT 매수가 (bid)
+let usdtAskPrice = 0; // Bithumb USDT 매도가 (ask)
+let bithumbFeeRate = 0; // 빗썸 수수료율 (%) - 0이면 수수료 미적용
 let exchangeCountry1 = 'KRW', exchangeCountry2 = 'JPY'; // saved country settings
 let exchangeActiveField = 'usdt'; // which field user is typing in
 let exchangeAmountUsdt = '', exchangeAmount1 = '', exchangeAmount2 = '';
@@ -307,8 +310,8 @@ let aiCurrentKeyIndex = 0;
 let aiShowSettings = false;
 let aiChatHistory = []; // conversation history for context
 let aiPendingAttachments = []; // pending attachments for next message { type: 'image'|'video'|'file', data: string, name: string, preview: string }
-const AI_PROXY_URL = 'https://xplayvault-foftd3kr.manus.space/api/ibag-chat';
-const TRANSLATE_PROXY_URL = 'https://xplayvault-foftd3kr.manus.space/api/ibag-translate';
+const AI_PROXY_URL = 'https://ibag.live/api/ibag-chat';
+const TRANSLATE_PROXY_URL = 'https://ibag.live/api/ibag-translate';
 
 // Token Detail state (TokenPocket style)
 let tokenDetailId = null; // currently viewing token id
@@ -1012,6 +1015,15 @@ async function fetchUsdtKrwPrice() {
       usdtKrwPrice = parseFloat(data.data.closing_price);
     }
   } catch(e) { console.log('Bithumb USDT price fetch error:', e); }
+  // Fetch orderbook for bid/ask prices
+  try {
+    const r2 = await fetch('https://api.bithumb.com/public/orderbook/USDT_KRW?count=1');
+    const data2 = await r2.json();
+    if (data2.status === '0000' && data2.data) {
+      if (data2.data.bids && data2.data.bids.length > 0) usdtBidPrice = parseFloat(data2.data.bids[0].price);
+      if (data2.data.asks && data2.data.asks.length > 0) usdtAskPrice = parseFloat(data2.data.asks[0].price);
+    }
+  } catch(e) { console.log('Bithumb orderbook fetch error:', e); }
 }
 
 // ─── Load saved exchange country settings ───
@@ -1279,6 +1291,11 @@ function render(force = false) {
   _pendingRender = false;
   
   const app = document.getElementById('app');
+  // Save scroll position before re-render
+  const scrollContainer = document.querySelector('.screen-content') || document.documentElement;
+  const savedScrollTop = scrollContainer.scrollTop;
+  const savedWindowScrollY = window.scrollY;
+  
   // Save current focus state before re-render
   const activeEl = document.activeElement;
   const activeId = activeEl ? activeEl.id : null;
@@ -1293,11 +1310,16 @@ function render(force = false) {
   }
   bindEvents();
   
+  // Restore scroll position after re-render
+  const newScrollContainer = document.querySelector('.screen-content') || document.documentElement;
+  newScrollContainer.scrollTop = savedScrollTop;
+  window.scrollTo(0, savedWindowScrollY);
+  
   // Restore focus after re-render
   if (activeId) {
     const restored = document.getElementById(activeId);
     if (restored) {
-      restored.focus();
+      restored.focus({ preventScroll: true });
       if (activeValue !== null && restored.value !== undefined) {
         restored.value = activeValue;
       }
@@ -2904,6 +2926,56 @@ function getRefPriceText(code) {
   return '';
 }
 
+function renderBithumbFeeSection() {
+  if (usdtBidPrice <= 0 || usdtAskPrice <= 0) return '';
+  const buyPrice = Math.round(usdtAskPrice * (1 + bithumbFeeRate / 100));
+  const sellPrice = Math.round(usdtBidPrice * (1 - bithumbFeeRate / 100));
+  const buyFee = Math.round(usdtAskPrice * bithumbFeeRate / 100);
+  const sellFee = Math.round(usdtBidPrice * bithumbFeeRate / 100);
+  const totalCost = buyPrice - sellPrice;
+  const totalPct = ((totalCost / buyPrice) * 100).toFixed(2);
+
+  // Load custom fee presets from localStorage
+  const savedPresets = localStorage.getItem('bithumb_fee_presets');
+  const defaultPresets = [0, 0.04, 0.1, 0.15, 0.2, 0.25];
+  const feePresets = savedPresets ? JSON.parse(savedPresets) : defaultPresets;
+  const feeBtns = feePresets.map(r => {
+    const cls = bithumbFeeRate === r ? 'bithumb-fee-btn active' : 'bithumb-fee-btn';
+    const label = r === 0 ? (t('bithumb_fee_none') || '없음') : r + '%';
+    return '<button class="' + cls + '" data-action="set-bithumb-fee" data-fee="' + r + '">' + label + '</button>';
+  }).join('');
+  // Custom fee input
+  const customActive = !feePresets.includes(bithumbFeeRate) && bithumbFeeRate > 0;
+  const customBtnCls = customActive ? 'bithumb-fee-btn custom-btn active' : 'bithumb-fee-btn custom-btn';
+  const customBtn = '<button class="' + customBtnCls + '" data-action="set-bithumb-fee-custom">' + (customActive ? bithumbFeeRate + '%' : (t('bithumb_fee_custom') || '직접입력')) + '</button>';
+
+  let html = '<div class="bithumb-fee-section">';
+  html += '<div class="bithumb-fee-header"><i class="ri-exchange-funds-line"></i><span>' + escapeHtml(t('bithumb_fee_title') || '빗썸 수수료 포함 가격') + '</span></div>';
+  html += '<div class="bithumb-fee-select"><span class="bithumb-fee-label">' + escapeHtml(t('bithumb_fee_rate') || '수수료율') + '</span><div class="bithumb-fee-btns">' + feeBtns + customBtn + '</div></div>';
+  html += '<div class="bithumb-fee-result">';
+  // Buy row
+  html += '<div class="bithumb-fee-row buy">';
+  html += '<div class="bithumb-fee-row-label"><i class="ri-arrow-up-circle-fill"></i> ' + escapeHtml(t('bithumb_buy_price') || '매수 시 가격') + '</div>';
+  html += '<div class="bithumb-fee-row-price">₩' + buyPrice.toLocaleString() + '</div>';
+  if (bithumbFeeRate > 0) html += '<div class="bithumb-fee-row-detail">' + escapeHtml(t('bithumb_ask') || '매도호가') + ' ₩' + usdtAskPrice.toLocaleString() + ' + 수수료 ₩' + buyFee.toLocaleString() + '</div>';
+  html += '</div>';
+  // Sell row
+  html += '<div class="bithumb-fee-row sell">';
+  html += '<div class="bithumb-fee-row-label"><i class="ri-arrow-down-circle-fill"></i> ' + escapeHtml(t('bithumb_sell_price') || '매도 시 가격') + '</div>';
+  html += '<div class="bithumb-fee-row-price">₩' + sellPrice.toLocaleString() + '</div>';
+  if (bithumbFeeRate > 0) html += '<div class="bithumb-fee-row-detail">' + escapeHtml(t('bithumb_bid') || '매수호가') + ' ₩' + usdtBidPrice.toLocaleString() + ' - 수수료 ₩' + sellFee.toLocaleString() + '</div>';
+  html += '</div>';
+  // Spread total
+  if (bithumbFeeRate > 0) {
+    html += '<div class="bithumb-fee-row spread-total">';
+    html += '<div class="bithumb-fee-row-label"><i class="ri-funds-line"></i> ' + escapeHtml(t('bithumb_total_cost') || '매수→매도 총 비용') + '</div>';
+    html += '<div class="bithumb-fee-row-price">₩' + totalCost.toLocaleString() + ' (' + totalPct + '%)</div>';
+    html += '</div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+
 function renderCalculator() {
   // Tab selector
   const tabHtml = `
@@ -2969,7 +3041,23 @@ function renderCalculator() {
         <div class="usdt-bithumb-label"><i class="ri-exchange-dollar-line"></i> ${escapeHtml(t('usdt_bithumb_price'))}</div>
         <div class="usdt-bithumb-price">₩${usdtKrwPrice.toLocaleString()}</div>
         <button class="usdt-refresh-btn" data-action="usdt-refresh"><i class="ri-refresh-line"></i></button>
-      </div>` 
+      </div>
+      ${usdtBidPrice > 0 && usdtAskPrice > 0 ? `
+      <div class="usdt-bidask-bar">
+        <div class="usdt-bidask-item bid">
+          <span class="usdt-bidask-label"><i class="ri-arrow-up-circle-line"></i> ${escapeHtml(t('bithumb_bid') || '매수가')}</span>
+          <span class="usdt-bidask-price">₩${usdtBidPrice.toLocaleString()}</span>
+        </div>
+        <div class="usdt-bidask-item ask">
+          <span class="usdt-bidask-label"><i class="ri-arrow-down-circle-line"></i> ${escapeHtml(t('bithumb_ask') || '매도가')}</span>
+          <span class="usdt-bidask-price">₩${usdtAskPrice.toLocaleString()}</span>
+        </div>
+        <div class="usdt-bidask-item spread">
+          <span class="usdt-bidask-label">${escapeHtml(t('bithumb_spread') || '스프레드')}</span>
+          <span class="usdt-bidask-price">₩${(usdtAskPrice - usdtBidPrice).toLocaleString()} (${((usdtAskPrice - usdtBidPrice) / usdtAskPrice * 100).toFixed(2)}%)</span>
+        </div>
+      </div>` : ''}
+    ` 
     : `<div class="usdt-bithumb-bar loading"><i class="ri-loader-4-line ri-spin"></i> ${escapeHtml(t('usdt_loading'))}</div>`;
 
   const refPopup = calcRefCurrency ? `
@@ -3080,6 +3168,8 @@ function renderCalculator() {
         <input type="number" class="form-input usdt-amount-input" id="usdt-amount2" value="${escapeHtml(exchangeAmount2)}" placeholder="0.00" data-usdt-input="2" inputmode="decimal">
         <div class="usdt-card-rate">${getRefPriceText(exchangeCountry2)}</div>
       </div>
+
+      ${renderBithumbFeeSection()}
 
       <div class="calc-bottom-actions">
         <button class="btn btn-primary btn-sm calc-photo-btn" data-action="calc-photo-open">
@@ -10288,6 +10378,48 @@ function handleAction(action, el) {
     }
 
     // USDT Exchange Calculator
+    case 'set-bithumb-fee': {
+      const feeVal = parseFloat(el.dataset.fee);
+      bithumbFeeRate = isNaN(feeVal) ? 0 : feeVal;
+      // DOM 직접 업데이트 - 스크롤 유지
+      const feeSection = document.querySelector('.bithumb-fee-section');
+      if (feeSection) {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = renderBithumbFeeSection();
+        const newSection = tempDiv.querySelector('.bithumb-fee-section');
+        if (newSection) feeSection.replaceWith(newSection);
+      } else {
+        render();
+      }
+      break;
+    }
+    case 'set-bithumb-fee-custom': {
+      const customFee = prompt(t('bithumb_fee_custom_prompt') || '수수료율을 입력하세요 (%, 예: 0.05)', bithumbFeeRate > 0 ? String(bithumbFeeRate) : '');
+      if (customFee !== null && customFee.trim() !== '') {
+        const parsed = parseFloat(customFee.replace('%', '').trim());
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+          bithumbFeeRate = parsed;
+          // Save custom preset to localStorage
+          const savedP = localStorage.getItem('bithumb_fee_presets');
+          const presets = savedP ? JSON.parse(savedP) : [0, 0.04, 0.1, 0.15, 0.2, 0.25];
+          if (!presets.includes(parsed) && parsed > 0) {
+            presets.push(parsed);
+            presets.sort((a, b) => a - b);
+            localStorage.setItem('bithumb_fee_presets', JSON.stringify(presets));
+          }
+          const feeSection = document.querySelector('.bithumb-fee-section');
+          if (feeSection) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = renderBithumbFeeSection();
+            const newSection = tempDiv.querySelector('.bithumb-fee-section');
+            if (newSection) feeSection.replaceWith(newSection);
+          } else {
+            render();
+          }
+        }
+      }
+      break;
+    }
     case 'usdt-refresh':
       fetchUsdtKrwPrice().then(() => { fetchCurrencyRates().then(() => {
         if (exchangeAmountUsdt) calcExchangeFromUsdt(parseFloat(exchangeAmountUsdt));

@@ -1,6 +1,6 @@
 {
   "name": "ibag",
-  "version": "5.3.4",
+  "version": "5.3.6",
   "description": "iBag - Smart Crypto Wallet & AI Assistant",
   "main": "main.js",
   "scripts": {

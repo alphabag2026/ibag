@@ -6,9 +6,9 @@ const API_BASE = window.location.origin;
 const IS_ELECTRON = !!(window.electronAPI && window.electronAPI.isElectron);
 
 // ─── App Version & OTA Update ───
-const APP_VERSION = '5.3.4';
-const APP_VERSION_CODE = 534;
-const UPDATE_CHECK_URL = 'https://xplayvault-foftd3kr.manus.space/api/ibag-update';
+const APP_VERSION = '5.3.6';
+const APP_VERSION_CODE = 536;
+const UPDATE_CHECK_URL = 'https://ibag.live/api/ibag-update';
 let updateInfo = null; // { version, versionCode, downloadUrl, changelog, forceUpdate }
 let updateCheckState = 'idle'; // idle, checking, available, latest, error, downloading
 let isPinned = false; // Always on Top state
@@ -310,8 +310,8 @@ let aiCurrentKeyIndex = 0;
 let aiShowSettings = false;
 let aiChatHistory = []; // conversation history for context
 let aiPendingAttachments = []; // pending attachments for next message { type: 'image'|'video'|'file', data: string, name: string, preview: string }
-const AI_PROXY_URL = 'https://xplayvault-foftd3kr.manus.space/api/ibag-chat';
-const TRANSLATE_PROXY_URL = 'https://xplayvault-foftd3kr.manus.space/api/ibag-translate';
+const AI_PROXY_URL = 'https://ibag.live/api/ibag-chat';
+const TRANSLATE_PROXY_URL = 'https://ibag.live/api/ibag-translate';
 
 // Token Detail state (TokenPocket style)
 let tokenDetailId = null; // currently viewing token id
@@ -2935,15 +2935,23 @@ function renderBithumbFeeSection() {
   const totalCost = buyPrice - sellPrice;
   const totalPct = ((totalCost / buyPrice) * 100).toFixed(2);
 
-  const feeBtns = [0, 0.04, 0.1, 0.15, 0.2, 0.25].map(r => {
+  // Load custom fee presets from localStorage
+  const savedPresets = localStorage.getItem('bithumb_fee_presets');
+  const defaultPresets = [0, 0.04, 0.1, 0.15, 0.2, 0.25];
+  const feePresets = savedPresets ? JSON.parse(savedPresets) : defaultPresets;
+  const feeBtns = feePresets.map(r => {
     const cls = bithumbFeeRate === r ? 'bithumb-fee-btn active' : 'bithumb-fee-btn';
     const label = r === 0 ? (t('bithumb_fee_none') || '없음') : r + '%';
     return '<button class="' + cls + '" data-action="set-bithumb-fee" data-fee="' + r + '">' + label + '</button>';
   }).join('');
+  // Custom fee input
+  const customActive = !feePresets.includes(bithumbFeeRate) && bithumbFeeRate > 0;
+  const customBtnCls = customActive ? 'bithumb-fee-btn custom-btn active' : 'bithumb-fee-btn custom-btn';
+  const customBtn = '<button class="' + customBtnCls + '" data-action="set-bithumb-fee-custom">' + (customActive ? bithumbFeeRate + '%' : (t('bithumb_fee_custom') || '직접입력')) + '</button>';
 
   let html = '<div class="bithumb-fee-section">';
   html += '<div class="bithumb-fee-header"><i class="ri-exchange-funds-line"></i><span>' + escapeHtml(t('bithumb_fee_title') || '빗썸 수수료 포함 가격') + '</span></div>';
-  html += '<div class="bithumb-fee-select"><span class="bithumb-fee-label">' + escapeHtml(t('bithumb_fee_rate') || '수수료율') + '</span><div class="bithumb-fee-btns">' + feeBtns + '</div></div>';
+  html += '<div class="bithumb-fee-select"><span class="bithumb-fee-label">' + escapeHtml(t('bithumb_fee_rate') || '수수료율') + '</span><div class="bithumb-fee-btns">' + feeBtns + customBtn + '</div></div>';
   html += '<div class="bithumb-fee-result">';
   // Buy row
   html += '<div class="bithumb-fee-row buy">';
@@ -10373,7 +10381,43 @@ function handleAction(action, el) {
     case 'set-bithumb-fee': {
       const feeVal = parseFloat(el.dataset.fee);
       bithumbFeeRate = isNaN(feeVal) ? 0 : feeVal;
-      render();
+      // DOM 직접 업데이트 - 스크롤 유지
+      const feeSection = document.querySelector('.bithumb-fee-section');
+      if (feeSection) {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = renderBithumbFeeSection();
+        const newSection = tempDiv.querySelector('.bithumb-fee-section');
+        if (newSection) feeSection.replaceWith(newSection);
+      } else {
+        render();
+      }
+      break;
+    }
+    case 'set-bithumb-fee-custom': {
+      const customFee = prompt(t('bithumb_fee_custom_prompt') || '수수료율을 입력하세요 (%, 예: 0.05)', bithumbFeeRate > 0 ? String(bithumbFeeRate) : '');
+      if (customFee !== null && customFee.trim() !== '') {
+        const parsed = parseFloat(customFee.replace('%', '').trim());
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
+          bithumbFeeRate = parsed;
+          // Save custom preset to localStorage
+          const savedP = localStorage.getItem('bithumb_fee_presets');
+          const presets = savedP ? JSON.parse(savedP) : [0, 0.04, 0.1, 0.15, 0.2, 0.25];
+          if (!presets.includes(parsed) && parsed > 0) {
+            presets.push(parsed);
+            presets.sort((a, b) => a - b);
+            localStorage.setItem('bithumb_fee_presets', JSON.stringify(presets));
+          }
+          const feeSection = document.querySelector('.bithumb-fee-section');
+          if (feeSection) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = renderBithumbFeeSection();
+            const newSection = tempDiv.querySelector('.bithumb-fee-section');
+            if (newSection) feeSection.replaceWith(newSection);
+          } else {
+            render();
+          }
+        }
+      }
       break;
     }
     case 'usdt-refresh':

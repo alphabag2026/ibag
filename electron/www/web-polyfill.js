@@ -21,15 +21,5 @@
     pickFile: async function() { return new Promise((resolve) => { const input = document.createElement('input'); input.type = 'file'; input.onchange = () => { const file = input.files[0]; if (!file) { resolve(null); return; } resolve({ name: file.name, size: file.size, path: URL.createObjectURL(file) }); }; input.click(); }); },
     exportData: async function(data) { const json = JSON.stringify(data, null, 2); const blob = new Blob([json], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'alphabag-backup-' + new Date().toISOString().slice(0,10) + '.json'; a.click(); URL.revokeObjectURL(url); },
     importData: async function() { return new Promise((resolve) => { const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'; input.onchange = () => { const file = input.files[0]; if (!file) { resolve(null); return; } const reader = new FileReader(); reader.onload = () => { try { resolve(JSON.parse(reader.result)); } catch (e) { resolve(null); } }; reader.readAsText(file); }; input.click(); }); },
-    getMiniMode: async function() { return false; },
-    getPinState: async function() { return false; },
-    openExternal: async function(url) { window.open(url, '_blank'); return true; },
-    copyToClipboard: async function(text) { try { await navigator.clipboard.writeText(text); } catch(e) { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); } return true; },
-    togglePin: async function() { return false; },
-    toggleMiniMode: async function() { return false; },
-    minimizeWindow: async function() {},
-    closeWindow: async function() {},
-    onPinStateChanged: function() {},
-    onMiniModeChanged: function() {},
   };
 })();
