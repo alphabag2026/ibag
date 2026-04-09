@@ -41,7 +41,7 @@ workflows:
       - name: Set iOS version
         script: |
           cd ios/App
-          agvtool new-marketing-version 5.3.4
+          agvtool new-marketing-version 5.3.6
           agvtool new-version -all $(($(date +%s) / 60))
       - name: Build iOS app
         script: |
@@ -78,7 +78,7 @@ workflows:
           cd android/app
           NEW_VERSION_CODE=$(($(date +%s) / 60))
           sed -i '' "s/versionCode [0-9]*/versionCode $NEW_VERSION_CODE/" build.gradle
-          sed -i '' "s/versionName \"[^\"]*\"/versionName \"5.3.4\"/" build.gradle
+          sed -i '' "s/versionName \"[^\"]*\"/versionName \"5.3.6\"/" build.gradle
           echo "Updated versionCode to $NEW_VERSION_CODE"
           grep -E "versionCode|versionName" build.gradle
       - name: Build Android APK
