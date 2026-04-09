@@ -53,7 +53,7 @@
   --warning: #d97706;
   --shadow-card: 0 2px 12px rgba(0,0,0,0.06);
   --shadow-fab: 0 4px 20px rgba(8, 145, 178, 0.25);
-}body { margin: 0; padding: 0; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);box-sizing: border-box; }
+}body { margin: 0; padding: 0; padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); box-sizing: border-box; }
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg); color: var(--text-primary);
